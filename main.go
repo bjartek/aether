@@ -16,4 +16,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	// todo: create users
+	// create dev wallet users
+	// run init transactions
 }
