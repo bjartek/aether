@@ -110,7 +110,8 @@ func InitEmulator(logger *zerolog.Logger) error {
 	}
 
 	wdw := &WrappedDevWallet{
-		dw: devWalletConfig,
+		dw:     devWalletConfig,
+		logger: logger,
 	}
 
 	gl.Add(wdw)
@@ -132,7 +133,8 @@ func (we *WrappedEmulator) Stop() {
 }
 
 type WrappedDevWallet struct {
-	dw *devWallet.FlowConfig
+	dw     *devWallet.FlowConfig
+	logger *zerolog.Logger
 }
 
 func (we *WrappedDevWallet) Start() error {
@@ -140,7 +142,10 @@ func (we *WrappedDevWallet) Start() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Started dev wallet")
+
+	we.logger.Info().
+		Int("port", 8701).
+		Msgf("🌱 Started dev-wallet on port %d", 8701)
 	return nil
 }
 
