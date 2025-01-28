@@ -81,38 +81,32 @@
   "accounts": {
     "emulator-account": {
       "address": "f8d6e0586b0a20c7",
-      "key": {
-        "type": "file",
-        "location": "emulator-account.pkey"
-      }
+      "key": "73d378ba7a101c477ee13a4f081204ba737faf65c88d1c0fe41e729ee1c05562"
     },
     "emulator-alice": {
       "address": "0x179b6b1cb6755e31",
-      "key": {
-        "type": "file",
-        "location": "emulator-account.pkey"
-      }
+      "key": "73d378ba7a101c477ee13a4f081204ba737faf65c88d1c0fe41e729ee1c05562"
     },
     "emulator-bob": {
       "address": "0xf3fcd2c1a78f5eee",
-      "key": {
-        "type": "file",
-        "location": "emulator-account.pkey"
-      }
+      "key": "73d378ba7a101c477ee13a4f081204ba737faf65c88d1c0fe41e729ee1c05562"
     },
     "emulator-charlie": {
       "address": "0xe03daebed8ca0615",
-      "key": {
-        "type": "file",
-        "location": "emulator-account.pkey"
-      }
+      "key": "73d378ba7a101c477ee13a4f081204ba737faf65c88d1c0fe41e729ee1c05562"
     },
     "emulator-danya": {
       "address": "0x045a1763c93006ca",
-      "key": {
-        "type": "file",
-        "location": "emulator-account.pkey"
-      }
+      "key": "73d378ba7a101c477ee13a4f081204ba737faf65c88d1c0fe41e729ee1c05562"
+    }
+  },
+  "deployments": {
+    "emulator": {
+      "emulator-account": [
+        "Counter"
+      ],
+      "emulator-alice": [],
+      "emulator-bob": []
     }
   }
 }

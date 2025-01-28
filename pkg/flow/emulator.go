@@ -15,30 +15,29 @@ import (
 	"github.com/onflow/flow-emulator/server"
 	"github.com/onflow/flowkit/v2"
 	"github.com/onflow/flowkit/v2/config"
-	"github.com/psiemens/graceland"
 	"github.com/psiemens/sconfig"
 	"github.com/spf13/afero"
 )
 
-func InitEmulator(logger *zerolog.Logger) error {
+func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Server, error) {
 	loader := &afero.Afero{Fs: afero.NewOsFs()}
 	state, err := flowkit.Load(config.DefaultPaths(), loader)
 	if err != nil {
 		if errors.Is(err, config.ErrDoesNotExist) {
-			return errors.New("🙏 Configuration (flow.json) is missing, are you in the correct directory? If you are trying to create a new project, initialize it with 'flow init' and then rerun this command")
+			return nil, nil, errors.New("🙏 Configuration (flow.json) is missing, are you in the correct directory? If you are trying to create a new project, initialize it with 'flow init' and then rerun this command")
 		} else {
-			return err
+			return nil, nil, err
 		}
 	}
 
 	serviceAccount, err := state.EmulatorServiceAccount()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	privateKey, err := serviceAccount.Key.PrivateKey()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	pk := *privateKey
@@ -76,7 +75,7 @@ func InitEmulator(logger *zerolog.Logger) error {
 		StorageLimitEnabled:          conf.StorageLimitEnabled,
 		StorageMBPerFLOW:             fvm.DefaultStorageMBPerFLOW,
 		MinimumStorageReservation:    fvm.DefaultMinimumStorageReservation,
-		TransactionFeesEnabled:       conf.TransactionFeesEnabled,
+		TransactionFeesEnabled:       true,
 		WithContracts:                conf.Contracts,
 		SkipTransactionValidation:    conf.SkipTxValidation,
 		SimpleAddressesEnabled:       conf.SimpleAddresses,
@@ -96,12 +95,6 @@ func InitEmulator(logger *zerolog.Logger) error {
 
 	emu := server.NewEmulatorServer(logger, serverConf)
 
-	we := &WrappedEmulator{
-		emu: emu,
-	}
-	gl := graceland.NewGroup()
-	gl.Add(we)
-
 	devWalletConfig := &devWallet.FlowConfig{
 		Address:    fmt.Sprintf("0x%s", serviceAccount.Address.String()),
 		PrivateKey: strings.TrimPrefix(pk.String(), "0x"),
@@ -109,46 +102,10 @@ func InitEmulator(logger *zerolog.Logger) error {
 		AccessNode: "http://localhost:8888",
 	}
 
-	wdw := &WrappedDevWallet{
-		dw:     devWalletConfig,
-		logger: logger,
-	}
-
-	gl.Add(wdw)
-
-	return gl.Start()
-}
-
-type WrappedEmulator struct {
-	emu *server.EmulatorServer
-}
-
-func (we *WrappedEmulator) Start() error {
-	we.emu.Start()
-	return nil
-}
-
-func (we *WrappedEmulator) Stop() {
-	we.emu.Stop()
-}
-
-type WrappedDevWallet struct {
-	dw     *devWallet.FlowConfig
-	logger *zerolog.Logger
-}
-
-func (we *WrappedDevWallet) Start() error {
-	_, err := devWallet.NewHTTPServer(8701, we.dw)
+	dw, err := devWallet.NewHTTPServer(8701, devWalletConfig)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	we.logger.Info().
-		Int("port", 8701).
-		Msgf("🌱 Started dev-wallet on port %d", 8701)
-	return nil
-}
-
-func (we *WrappedDevWallet) Stop() {
-	// this cannot do much really, just have to die
+	return emu, dw, nil
 }
