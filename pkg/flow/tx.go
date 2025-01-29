@@ -1,16 +1,17 @@
 package flow
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/bjartek/overflow/v2"
+	"github.com/enescakir/emoji"
+	"github.com/rs/zerolog"
 )
 
 // TODO: add logger
-func RunInitTransactions(o *overflow.OverflowState, validPath string) error {
+func RunInitTransactions(o *overflow.OverflowState, validPath string, logger *zerolog.Logger) error {
 	err := filepath.Walk(validPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -21,13 +22,12 @@ func RunInitTransactions(o *overflow.OverflowState, validPath string) error {
 			return nil
 		}
 
-		// Process the file
-		fmt.Printf("Processing file: %sn", info.Name())
-
-		res := o.Tx(strings.TrimSuffix(info.Name(), ".cdc"), overflow.WithAutoSigner())
+		fileName := strings.TrimSuffix(info.Name(), ".cdc")
+		res := o.Tx(fileName, overflow.WithAutoSigner())
 		if res.Err != nil {
 			return res.Err
 		}
+		logger.Info().Str("file", fileName).Msgf("%v Ran init transaction", emoji.Scroll)
 		return nil
 	})
 	return err

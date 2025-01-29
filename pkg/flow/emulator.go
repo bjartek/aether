@@ -54,11 +54,11 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 
 	serverConf := &server.Config{
 		GRPCPort:                     conf.Port,
-		GRPCDebug:                    conf.GRPCDebug,
+		GRPCDebug:                    true,
 		AdminPort:                    conf.AdminPort,
 		DebuggerPort:                 conf.DebuggerPort,
 		RESTPort:                     conf.RestPort,
-		RESTDebug:                    conf.RESTDebug,
+		RESTDebug:                    true,
 		HTTPHeaders:                  nil,
 		BlockTime:                    conf.BlockTime,
 		ServicePublicKey:             pk.PublicKey(),
