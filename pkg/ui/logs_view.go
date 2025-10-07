@@ -84,24 +84,32 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			// Handle error - could add error display
 			return nil
 		}
-		
+
 		if msg.Line != "" {
+			// Check if we're at the bottom before adding new content
+			atBottom := false
+			if lv.ready {
+				atBottom = lv.viewport.AtBottom()
+			}
+
 			// Add new line
 			lv.lines = append(lv.lines, strings.TrimRight(msg.Line, "\n"))
-			
+
 			// Keep only the last maxLines
 			if len(lv.lines) > lv.maxLines {
 				lv.lines = lv.lines[len(lv.lines)-lv.maxLines:]
 			}
-			
+
 			// Update viewport content
 			if lv.ready {
 				lv.viewport.SetContent(strings.Join(lv.lines, "\n"))
-				// Auto-scroll to bottom
-				lv.viewport.GotoBottom()
+				// Only auto-scroll if we were at the bottom
+				if atBottom {
+					lv.viewport.GotoBottom()
+				}
 			}
 		}
-		
+
 		return nil
 
 	case tea.WindowSizeMsg:
@@ -113,7 +121,7 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			lv.viewport.Width = width
 			lv.viewport.Height = height
 		}
-	
+
 	case tea.KeyMsg:
 		// Handle keybindings using key.Matches
 		switch {
@@ -148,13 +156,13 @@ func (lv *LogsView) View() string {
 	if !lv.ready {
 		return "Loading logs..."
 	}
-	
+
 	if len(lv.lines) == 0 {
 		return lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262")).
 			Render("Waiting for log entries...")
 	}
-	
+
 	return lv.viewport.View()
 }
 

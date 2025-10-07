@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/bjartek/aether/pkg/ui"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rs/zerolog"
 )
 
 //go:embed cadence/FCL.cdc
@@ -22,9 +24,20 @@ var fclCdc []byte
 var _ embed.FS
 
 func main() {
+	// Parse command line flags
+	verbose := flag.Bool("verbose", false, "Enable verbose (debug) logging")
+	flag.Parse()
+
 	// Create logger with channel buffering (1000 log lines)
 	// This allows logging before the Tea program starts
 	logger, logWriter := logs.NewLogger(1000)
+
+	// Set log level based on verbose flag
+	if *verbose {
+		logger = logger.Level(zerolog.DebugLevel)
+	} else {
+		logger = logger.Level(zerolog.InfoLevel)
+	}
 
 	logger.Info().Msg("Initializing Flow emulator and dev wallet...")
 	emu, dw, err := flow.InitEmulator(&logger)
@@ -74,8 +87,7 @@ func main() {
 	// Now create the Bubble Tea program with the store
 	p := tea.NewProgram(
 		ui.NewModel(a.Store),
-		tea.WithAltScreen(),       // Use alternate screen buffer
-		tea.WithMouseCellMotion(), // Enable mouse support
+		tea.WithAltScreen(), // Use alternate screen buffer
 	)
 
 	// Attach the Tea program to the log writer

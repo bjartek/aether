@@ -29,11 +29,13 @@ type OverflowBlockTransactions struct {
 }
 
 func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll time.Duration, height uint64, logger *zerolog.Logger, channel chan<- BlockResult) error {
+	logger.Info().Msg("StreamTransactions started")
 	latestKnownBlock, err := o.GetLatestBlock(ctx)
 	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get latest block")
 		return err
 	}
-	logger.Info().Uint64("height", latestKnownBlock.Height).Uint64("heightToStartAt", height).Dur("poll", poll).Msg("latest block is")
+	logger.Info().Uint64("height", latestKnownBlock.Height).Uint64("heightToStartAt", height).Dur("poll", poll).Msg("Starting to stream from latest block")
 
 	sleep := poll
 	for {
@@ -107,8 +109,22 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 			}
 			logg.Debug().Int("tx", len(otb.Transactions)).Msg("fetched transactions")
 			logg = logg.With().Int("tx", len(otb.Transactions)).Logger()
+			
+			blockResult := BlockResult{
+				Block:              *block,
+				Transactions:       otb.Transactions,
+				SystemChunkEvents:  otb.SystemEvents,
+				SystemTransactions: otb.SystemTransaction,
+				Logger:             logg,
+				View:               0,
+				StartTime:          start,
+			}
+			
+			logg.Info().Uint64("height", block.Height).Int("txCount", len(otb.Transactions)).Msg("Sending block to channel")
+			
 			select {
-			case channel <- BlockResult{Block: *block, Transactions: otb.Transactions, SystemChunkEvents: otb.SystemEvents, SystemTransactions: otb.SystemTransaction, Logger: logg, View: 0, StartTime: start}:
+			case channel <- blockResult:
+				logg.Info().Uint64("height", block.Height).Msg("Block sent to channel successfully")
 				height = nextBlockToProcess
 			case <-ctx.Done():
 				close(channel)

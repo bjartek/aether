@@ -24,6 +24,7 @@ func (s *Store) Add(block flow.BlockResult) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.blocks = append(s.blocks, block)
+	block.Logger.Debug().Int("totalBlocks", len(s.blocks)).Uint64("height", block.Block.Height).Msg("Block added to store")
 }
 
 // GetAll returns all stored blocks

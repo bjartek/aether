@@ -23,12 +23,12 @@ type Aether struct {
 
 func (a *Aether) Start() error {
 	ctx := context.Background()
-	
+
 	// Initialize store if not provided
 	if a.Store == nil {
 		a.Store = NewStore()
 	}
-	
+
 	// Define the two possible paths
 	path1 := "aether"
 	path2 := filepath.Join("cadence", "aether")
@@ -58,36 +58,17 @@ func (a *Aether) Start() error {
 	}
 	a.Overflow = o
 
-	a.Logger.Info().Msgf("%v Created accounts for emulator users in flow.json", emoji.Person)
-	o.InitializeContracts(ctx)
-
-	a.Logger.Info().Msgf("%v  Deployed contracts specified in emulator deployment block", emoji.Envelope)
-	err = flow.AddFclContract(o, a.FclCdc)
-	if err != nil {
-		return err
-	}
-
-	accounts := o.GetEmulatorAccounts()
-
-	err = flow.AddFclAccounts(o, accounts)
-	if err != nil {
-		return err
-	}
-	a.Logger.Info().Dict("accounts", zerolog.Dict().Fields(accounts)).Msgf("%v Added accounts to FCL", emoji.Person)
-
-	err = flow.RunInitTransactions(o, validPath, a.Logger)
-	if err != nil {
-		return err
-	}
 	overflowChannel := make(chan flow.BlockResult)
 
 	go func() {
-		err := flow.StreamTransactions(ctx, o, 1*time.Second, 1, a.Logger, overflowChannel)
+		a.Logger.Info().Msg("Started streaming")
+
+		err := flow.StreamTransactions(ctx, o, 200*time.Millisecond, 1, a.Logger, overflowChannel)
 		if err != nil {
 			if strings.Contains(err.Error(), "context canceled") {
 				a.Logger.Info().Msg("Streaming stopped due to context cancellation")
 			} else {
-				a.Logger.Warn().Msg("Streaming encountered an error")
+				a.Logger.Warn().Err(err).Msg("Streaming encountered an error")
 			}
 		}
 	}()
@@ -96,7 +77,7 @@ func (a *Aether) Start() error {
 		for {
 			select {
 			case <-ctx.Done():
-				a.Logger.Info().Msg("Context done, stopping overflow stream")
+				a.Logger.Info().Msg("Block receiver goroutine stopping due to context cancellation")
 				return
 			case br, ok := <-overflowChannel:
 				if !ok {
@@ -128,8 +109,29 @@ func (a *Aether) Start() error {
 		}
 	}()
 
+	a.Logger.Info().Msgf("%v Created accounts for emulator users in flow.json", emoji.Person)
+	o.InitializeContracts(ctx)
+
+	a.Logger.Info().Msgf("%v  Deployed contracts specified in emulator deployment block", emoji.Envelope)
+	err = flow.AddFclContract(o, a.FclCdc)
+	if err != nil {
+		return err
+	}
+
+	accounts := o.GetEmulatorAccounts()
+
+	err = flow.AddFclAccounts(o, accounts)
+	if err != nil {
+		return err
+	}
+	a.Logger.Info().Dict("accounts", zerolog.Dict().Fields(accounts)).Msgf("%v Added accounts to FCL", emoji.Person)
+
+	err = flow.RunInitTransactions(o, validPath, a.Logger)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (i *Aether) Stop() {
+func (a *Aether) Stop() {
 }
