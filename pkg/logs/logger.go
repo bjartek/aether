@@ -25,24 +25,7 @@ func NewLogger(program *tea.Program) zerolog.Logger {
 	logger := zerolog.New(consoleWriter).
 		With().
 		Timestamp().
-		Caller().
 		Logger()
-
-	return logger
-}
-
-// NewProductionLogger creates a production-ready zerolog logger with JSON output to TUI.
-func NewProductionLogger(program *tea.Program) zerolog.Logger {
-	// Create the TUI writer
-	tuiWriter := NewLogWriter(program)
-
-	// Create logger with JSON output
-	logger := zerolog.New(tuiWriter).
-		With().
-		Timestamp().
-		Caller().
-		Logger().
-		Level(zerolog.InfoLevel)
 
 	return logger
 }
@@ -73,7 +56,6 @@ func NewLoggerWithFile(program *tea.Program, logFilePath string) (zerolog.Logger
 	logger := zerolog.New(consoleWriter).
 		With().
 		Timestamp().
-		Caller().
 		Logger()
 
 	return logger, nil
