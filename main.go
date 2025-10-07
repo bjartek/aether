@@ -70,9 +70,10 @@ func main() {
 		logger.Info().Msg("Starting aether server")
 		a.Start()
 	}()
-	// Now create the Bubble Tea program
+
+	// Now create the Bubble Tea program with the store
 	p := tea.NewProgram(
-		ui.NewModel(),
+		ui.NewModel(a.Store),
 		tea.WithAltScreen(),       // Use alternate screen buffer
 		tea.WithMouseCellMotion(), // Enable mouse support
 	)
@@ -80,6 +81,7 @@ func main() {
 	// Attach the Tea program to the log writer
 	// This will drain any buffered logs and start sending new logs to the UI
 	logWriter.AttachProgram(p)
+
 
 	// Run the program - this blocks until the user quits
 	if _, err := p.Run(); err != nil {

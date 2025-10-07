@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -16,35 +17,39 @@ type Tab struct {
 
 // Model represents the application state.
 type Model struct {
-	tabs         []Tab
-	activeTab    int
-	keys         KeyMap
-	help         help.Model
-	showHelp     bool
-	width        int
-	height       int
-	ready        bool
-	logsView     *LogsView
-	logsTabIndex int
+	tabs           []Tab
+	activeTab      int
+	keys           KeyMap
+	help           help.Model
+	showHelp       bool
+	width          int
+	height         int
+	ready          bool
+	logsView       *LogsView
+	blocksView     *BlocksView
+	logsTabIndex   int
+	blocksTabIndex int
 }
 
 // NewModel creates a new application model with default tabs.
-func NewModel() Model {
+func NewModel(store *aether.Store) Model {
 	tabs := []Tab{
-		{Name: "Home", Content: "Welcome to the Home tab!"},
+		{Name: "Blocks", Content: ""},   // Content will be rendered by BlocksView
+		{Name: "Logs", Content: ""},     // Content will be rendered by LogsView
 		{Name: "Settings", Content: "Settings tab content goes here."},
 		{Name: "About", Content: "About this application."},
-		{Name: "Logs", Content: ""}, // Content will be rendered by LogsView
 	}
 
 	return Model{
-		tabs:         tabs,
-		activeTab:    3, // Start on Logs tab
-		keys:         DefaultKeyMap(),
-		help:         help.New(),
-		showHelp:     false,
-		logsView:     NewLogsView(),
-		logsTabIndex: 3, // Index of the Logs tab
+		tabs:           tabs,
+		activeTab:      1, // Start on Logs tab
+		keys:           DefaultKeyMap(),
+		help:           help.New(),
+		showHelp:       false,
+		logsView:       NewLogsView(),
+		blocksView:     NewBlocksView(store),
+		logsTabIndex:   1, // Index of the Logs tab
+		blocksTabIndex: 0, // Index of the Blocks tab
 	}
 }
 
@@ -117,15 +122,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// If we're on the logs tab, update the logs view
+	// Update the appropriate view based on active tab
+	headerHeight := 3
+	footerHeight := 3
+	if m.showHelp {
+		footerHeight = lipgloss.Height(m.help.View(m.keys))
+	}
+	contentHeight := m.height - headerHeight - footerHeight
+
 	if m.activeTab == m.logsTabIndex && m.logsView != nil {
-		headerHeight := 3
-		footerHeight := 3
-		if m.showHelp {
-			footerHeight = lipgloss.Height(m.help.View(m.keys))
-		}
-		contentHeight := m.height - headerHeight - footerHeight
 		cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
+		cmds = append(cmds, cmd)
+	} else if m.activeTab == m.blocksTabIndex && m.blocksView != nil {
+		cmd = m.blocksView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
 	}
 
@@ -177,7 +186,15 @@ func (m Model) renderHeader() string {
 
 // renderContent renders the main content area.
 func (m Model) renderContent(height int) string {
-	// If we're on the logs tab and have a logs view, render it
+	// Render blocks tab
+	if m.activeTab == m.blocksTabIndex && m.blocksView != nil {
+		return contentStyle.
+			Width(m.width - 2).
+			Height(height).
+			Render(m.blocksView.View())
+	}
+
+	// Render logs tab
 	if m.activeTab == m.logsTabIndex && m.logsView != nil {
 		return contentStyle.
 			Width(m.width - 2).

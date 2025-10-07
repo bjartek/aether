@@ -3,17 +3,59 @@ package ui
 import (
 	"strings"
 
+	"github.com/bjartek/aether/pkg/logs"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/bjartek/aether/pkg/logs"
 )
+
+// LogsKeyMap defines keybindings for the logs view
+type LogsKeyMap struct {
+	LineUp   key.Binding
+	LineDown key.Binding
+	GotoTop  key.Binding
+	GotoEnd  key.Binding
+	PageUp   key.Binding
+	PageDown key.Binding
+}
+
+// DefaultLogsKeyMap returns the default keybindings for logs view
+func DefaultLogsKeyMap() LogsKeyMap {
+	return LogsKeyMap{
+		LineUp: key.NewBinding(
+			key.WithKeys("k", "up"),
+			key.WithHelp("k/↑", "up"),
+		),
+		LineDown: key.NewBinding(
+			key.WithKeys("j", "down"),
+			key.WithHelp("j/↓", "down"),
+		),
+		GotoTop: key.NewBinding(
+			key.WithKeys("g", "home"),
+			key.WithHelp("g/home", "go to top"),
+		),
+		GotoEnd: key.NewBinding(
+			key.WithKeys("G", "end"),
+			key.WithHelp("G/end", "go to bottom"),
+		),
+		PageUp: key.NewBinding(
+			key.WithKeys("ctrl+u", "pgup"),
+			key.WithHelp("ctrl+u/pgup", "page up"),
+		),
+		PageDown: key.NewBinding(
+			key.WithKeys("ctrl+d", "pgdown"),
+			key.WithHelp("ctrl+d/pgdn", "page down"),
+		),
+	}
+}
 
 // LogsView manages the logs display with a scrollable viewport.
 type LogsView struct {
 	viewport viewport.Model
 	lines    []string
 	maxLines int
+	keys     LogsKeyMap
 	ready    bool
 }
 
@@ -22,6 +64,7 @@ func NewLogsView() *LogsView {
 	return &LogsView{
 		lines:    make([]string, 0),
 		maxLines: 1000, // Keep last 1000 lines in memory
+		keys:     DefaultLogsKeyMap(),
 		ready:    false,
 	}
 }
@@ -70,9 +113,32 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			lv.viewport.Width = width
 			lv.viewport.Height = height
 		}
+	
+	case tea.KeyMsg:
+		// Handle keybindings using key.Matches
+		switch {
+		case key.Matches(msg, lv.keys.LineDown):
+			lv.viewport.ViewDown()
+			return nil
+		case key.Matches(msg, lv.keys.LineUp):
+			lv.viewport.ViewUp()
+			return nil
+		case key.Matches(msg, lv.keys.GotoTop):
+			lv.viewport.GotoTop()
+			return nil
+		case key.Matches(msg, lv.keys.GotoEnd):
+			lv.viewport.GotoBottom()
+			return nil
+		case key.Matches(msg, lv.keys.PageDown):
+			lv.viewport.HalfViewDown()
+			return nil
+		case key.Matches(msg, lv.keys.PageUp):
+			lv.viewport.HalfViewUp()
+			return nil
+		}
 	}
 
-	// Update viewport (handles scrolling)
+	// Update viewport (handles scrolling with arrow keys and page up/down)
 	lv.viewport, cmd = lv.viewport.Update(msg)
 	return cmd
 }

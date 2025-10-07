@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
@@ -13,12 +15,20 @@ import (
 )
 
 type Aether struct {
-	Logger *zerolog.Logger
-	FclCdc []byte
+	Logger   *zerolog.Logger
+	FclCdc   []byte
+	Overflow *overflow.OverflowState
+	Store    *Store
 }
 
 func (a *Aether) Start() error {
 	ctx := context.Background()
+	
+	// Initialize store if not provided
+	if a.Store == nil {
+		a.Store = NewStore()
+	}
+	
 	// Define the two possible paths
 	path1 := "aether"
 	path2 := filepath.Join("cadence", "aether")
@@ -46,6 +56,8 @@ func (a *Aether) Start() error {
 	if err != nil {
 		return err
 	}
+	a.Overflow = o
+
 	a.Logger.Info().Msgf("%v Created accounts for emulator users in flow.json", emoji.Person)
 	o.InitializeContracts(ctx)
 
@@ -67,6 +79,55 @@ func (a *Aether) Start() error {
 	if err != nil {
 		return err
 	}
+	overflowChannel := make(chan flow.BlockResult)
+
+	go func() {
+		err := flow.StreamTransactions(ctx, o, 1*time.Second, 1, a.Logger, overflowChannel)
+		if err != nil {
+			if strings.Contains(err.Error(), "context canceled") {
+				a.Logger.Info().Msg("Streaming stopped due to context cancellation")
+			} else {
+				a.Logger.Warn().Msg("Streaming encountered an error")
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				a.Logger.Info().Msg("Context done, stopping overflow stream")
+				return
+			case br, ok := <-overflowChannel:
+				if !ok {
+					a.Logger.Info().Msg("Channel has been closed. Crawler stopped completely.")
+					return
+				}
+
+				l := br.Logger
+
+				if br.Error != nil {
+					l.Warn().Err(br.Error).Msg("Failed fetching block")
+					continue
+				}
+
+				// Store the block result
+				a.Store.Add(br)
+
+				// Log the block processing
+				totalDur := time.Since(br.StartTime)
+				txCount := len(br.Transactions)
+
+				l.Info().
+					Uint64("height", br.Block.Height).
+					Int64("durationMs", totalDur.Milliseconds()).
+					Int("txCount", txCount).
+					Int("totalBlocks", a.Store.Count()).
+					Msg("Processed and stored block")
+			}
+		}
+	}()
+
 	return nil
 }
 

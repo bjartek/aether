@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/onflow/cadence"
 	devWallet "github.com/onflow/fcl-dev-wallet/go/wallet"
@@ -60,7 +61,7 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 		RESTPort:                    conf.RestPort,
 		RESTDebug:                   true,
 		HTTPHeaders:                 nil,
-		BlockTime:                   conf.BlockTime,
+		BlockTime:                   1 * time.Second, 
 		ServicePublicKey:            pk.PublicKey(),
 		ServicePrivateKey:           pk,
 		ServiceKeySigAlgo:           serviceAccount.Key.SigAlgo(),
