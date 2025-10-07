@@ -22,6 +22,8 @@ type Tailer struct {
 	filePath string
 	ctx      context.Context
 	cancel   context.CancelFunc
+	file     *os.File
+	reader   *bufio.Reader
 }
 
 // NewTailer creates a new file tailer.
@@ -37,6 +39,15 @@ func NewTailer(filePath string) *Tailer {
 // Start begins tailing the file and returns a Bubble Tea command.
 func (t *Tailer) Start() tea.Cmd {
 	return func() tea.Msg {
+		// Open the file on first start
+		if t.file == nil {
+			file, err := os.Open(t.filePath)
+			if err != nil {
+				return LogLineMsg{Err: fmt.Errorf("failed to open file: %w", err)}
+			}
+			t.file = file
+			t.reader = bufio.NewReader(file)
+		}
 		return t.tail()
 	}
 }
@@ -46,44 +57,35 @@ func (t *Tailer) Stop() {
 	if t.cancel != nil {
 		t.cancel()
 	}
+	if t.file != nil {
+		t.file.Close()
+		t.file = nil
+		t.reader = nil
+	}
 }
 
 // tail reads the file and sends new lines as messages.
 func (t *Tailer) tail() tea.Msg {
-	file, err := os.Open(t.filePath)
+	// Check if context is cancelled
+	select {
+	case <-t.ctx.Done():
+		return nil
+	default:
+	}
+
+	// Try to read a line
+	line, err := t.reader.ReadString('\n')
 	if err != nil {
-		return LogLineMsg{Err: fmt.Errorf("failed to open file: %w", err)}
-	}
-	defer file.Close()
-
-	// Seek to the end of the file
-	if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		return LogLineMsg{Err: fmt.Errorf("failed to seek to end: %w", err)}
-	}
-
-	reader := bufio.NewReader(file)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-t.ctx.Done():
-			return nil
-		case <-ticker.C:
-			for {
-				line, err := reader.ReadString('\n')
-				if err != nil {
-					if err == io.EOF {
-						// No more data, wait for next tick
-						break
-					}
-					return LogLineMsg{Err: fmt.Errorf("error reading file: %w", err)}
-				}
-				// Send the line back to the program
-				return LogLineMsg{Line: line}
-			}
+		if err == io.EOF {
+			// No more data available, wait and try again
+			time.Sleep(100 * time.Millisecond)
+			return t.tail()
 		}
+		return LogLineMsg{Err: fmt.Errorf("error reading file: %w", err)}
 	}
+
+	// Send the line back to the program
+	return LogLineMsg{Line: line}
 }
 
 // WaitForMoreLines returns a command that continues tailing.

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/bjartek/aether/pkg/logs"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,7 +39,7 @@ func NewModel() Model {
 
 	return Model{
 		tabs:         tabs,
-		activeTab:    0,
+		activeTab:    3, // Start on Logs tab
 		keys:         DefaultKeyMap(),
 		help:         help.New(),
 		showHelp:     false,
@@ -61,6 +62,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case logs.LogLineMsg:
+		// Always forward log messages to the logs view, regardless of active tab
+		if m.logsView != nil {
+			headerHeight := 3
+			footerHeight := 3
+			if m.showHelp {
+				footerHeight = lipgloss.Height(m.help.View(m.keys))
+			}
+			contentHeight := m.height - headerHeight - footerHeight
+			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
