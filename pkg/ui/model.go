@@ -2,7 +2,6 @@ package ui
 
 import (
 	"github.com/bjartek/aether/pkg/aether"
-	"github.com/bjartek/aether/pkg/debug"
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -56,10 +55,14 @@ func NewModel(store *aether.Store) Model {
 
 // Init initializes the model.
 func (m Model) Init() tea.Cmd {
+	var cmds []tea.Cmd
 	if m.logsView != nil {
-		return m.logsView.Init()
+		cmds = append(cmds, m.logsView.Init())
 	}
-	return nil
+	if m.blocksView != nil {
+		cmds = append(cmds, m.blocksView.Init())
+	}
+	return tea.Batch(cmds...)
 }
 
 // Update handles messages and updates the model.
@@ -68,6 +71,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case TickMsg:
+		// Forward tick to blocks view if it's active
+		if m.blocksView != nil {
+			headerHeight := 3
+			footerHeight := 3
+			if m.showHelp {
+				footerHeight = lipgloss.Height(m.help.View(m.keys))
+			}
+			contentHeight := m.height - headerHeight - footerHeight
+			cmd = m.blocksView.Update(msg, m.width-4, contentHeight-2)
+			return m, cmd
+		}
+		return m, nil
+	
 	case logs.LogLineMsg:
 		// Always forward log messages to the logs view, regardless of active tab
 		if m.logsView != nil {
@@ -122,16 +139,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, m.keys.NextTab):
-			debug.Logger.Info().Int("currentTab", m.activeTab).Msg("NextTab pressed")
 			m.activeTab = (m.activeTab + 1) % len(m.tabs)
-			debug.Logger.Info().Int("newTab", m.activeTab).Str("tabName", m.tabs[m.activeTab].Name).Msg("Switched to tab")
-			// Don't return early - let the view update below
 
 		case key.Matches(msg, m.keys.PrevTab):
-			debug.Logger.Info().Int("currentTab", m.activeTab).Msg("PrevTab pressed")
 			m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
-			debug.Logger.Info().Int("newTab", m.activeTab).Str("tabName", m.tabs[m.activeTab].Name).Msg("Switched to tab")
-			// Don't return early - let the view update below
 		}
 	}
 
@@ -145,15 +156,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Update active view
 	if m.activeTab == m.logsTabIndex && m.logsView != nil {
-		debug.Logger.Info().Msg("Updating logs view")
 		cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
-		debug.Logger.Info().Msg("Logs view updated")
 	} else if m.activeTab == m.blocksTabIndex && m.blocksView != nil {
-		debug.Logger.Info().Msg("Updating blocks view")
 		cmd = m.blocksView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
-		debug.Logger.Info().Msg("Blocks view updated")
 	}
 
 	// Filter out nil commands
@@ -164,7 +171,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	
-	debug.Logger.Info().Int("cmdCount", len(validCmds)).Msg("Model.Update returning")
 	if len(validCmds) == 0 {
 		return m, nil
 	}

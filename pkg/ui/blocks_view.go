@@ -2,10 +2,9 @@ package ui
 
 import (
 	"fmt"
-	"strings"
+	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
-	"github.com/bjartek/aether/pkg/debug"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
@@ -17,6 +16,9 @@ import (
 var tableStyle = lipgloss.NewStyle().
 	BorderStyle(lipgloss.NormalBorder()).
 	BorderForeground(lipgloss.Color("240"))
+
+// TickMsg is sent periodically to refresh the blocks view
+type TickMsg time.Time
 
 // BlocksKeyMap defines keybindings for the blocks view
 type BlocksKeyMap struct {
@@ -60,16 +62,16 @@ func DefaultBlocksKeyMap() BlocksKeyMap {
 
 // BlocksView manages the blocks table display
 type BlocksView struct {
-	table         table.Model
-	viewport      viewport.Model
-	store         *aether.Store
-	keys          BlocksKeyMap
-	ready         bool
-	active        bool
-	renderCount   int
-	cachedBlocks  []flow.BlockResult
+	table          table.Model
+	viewport       viewport.Model
+	store          *aether.Store
+	keys           BlocksKeyMap
+	ready          bool
+	active         bool
+	renderCount    int
+	cachedBlocks   []flow.BlockResult
 	lastBlockCount int
-	maxBlocks     int // Maximum number of blocks to display
+	maxBlocks      int // Maximum number of blocks to display
 }
 
 // NewBlocksView creates a new blocks view
@@ -108,14 +110,25 @@ func NewBlocksView(store *aether.Store) *BlocksView {
 
 // Init initializes the blocks view
 func (bv *BlocksView) Init() tea.Cmd {
-	return nil
+	return bv.tick()
+}
+
+// tick returns a command that sends a TickMsg after a delay
+func (bv *BlocksView) tick() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return TickMsg(t)
+	})
 }
 
 // Update handles messages for the blocks view
 func (bv *BlocksView) Update(msg tea.Msg, width, height int) tea.Cmd {
 	switch msg := msg.(type) {
+	case TickMsg:
+		// Refresh data on tick
+		bv.refreshData()
+		return bv.tick()
+	
 	case tea.WindowSizeMsg:
-		debug.Logger.Info().Int("width", width).Int("height", height).Msg("BlocksView WindowSizeMsg")
 		if !bv.ready {
 			bv.viewport = viewport.New(width, height)
 			bv.viewport.KeyMap = viewport.KeyMap{
@@ -132,32 +145,12 @@ func (bv *BlocksView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		bv.table.SetWidth(width)
 		bv.table.SetHeight(height)
 		// Refresh data when window is resized
-		debug.Logger.Info().Msg("Calling refreshData from WindowSizeMsg")
 		bv.refreshData()
-		debug.Logger.Info().Msg("refreshData completed")
 	case tea.KeyMsg:
-		debug.Logger.Info().Str("key", msg.String()).Msg("BlocksView KeyMsg")
-		// Handle keybindings using key.Matches
-		switch {
-		case key.Matches(msg, bv.keys.LineDown):
-			bv.table.MoveDown(1)
-			return nil
-		case key.Matches(msg, bv.keys.LineUp):
-			bv.table.MoveUp(1)
-			return nil
-		case key.Matches(msg, bv.keys.GotoTop):
-			bv.table.GotoTop()
-			return nil
-		case key.Matches(msg, bv.keys.GotoEnd):
-			bv.table.GotoBottom()
-			return nil
-		case key.Matches(msg, bv.keys.PageDown):
-			bv.table.MoveDown(bv.table.Height() / 2)
-			return nil
-		case key.Matches(msg, bv.keys.PageUp):
-			bv.table.MoveUp(bv.table.Height() / 2)
-			return nil
-		}
+		// Let the table handle the key - no data refresh needed
+		var cmd tea.Cmd
+		bv.table, cmd = bv.table.Update(msg)
+		return cmd
 	}
 
 	// No viewport update needed since we're using simple text rendering
@@ -165,6 +158,7 @@ func (bv *BlocksView) Update(msg tea.Msg, width, height int) tea.Cmd {
 }
 
 // refreshData updates the table rows from the store
+// Should only be called from Update(), never from View()
 func (bv *BlocksView) refreshData() {
 	if bv.store == nil {
 		return
@@ -192,7 +186,7 @@ func (bv *BlocksView) refreshData() {
 	bv.table.SetRows(rows)
 }
 
-// View renders the blocks view
+// View renders the blocks view - PURE FUNCTION, no state mutations
 func (bv *BlocksView) View() string {
 	if !bv.ready {
 		return "Loading blocks..."
@@ -202,27 +196,16 @@ func (bv *BlocksView) View() string {
 		return "Store not initialized..."
 	}
 	
-	// Refresh data if needed (checks internally if refresh is necessary)
-	bv.refreshData()
-	
 	if len(bv.cachedBlocks) == 0 {
 		return "No blocks processed yet..."
 	}
 
-	// Build view from cached blocks
-	var result strings.Builder
+	// Render header with count
 	totalBlocks := bv.store.Count()
-	result.WriteString(fmt.Sprintf("Blocks with Transactions (showing %d of %d)\n\n", len(bv.cachedBlocks), totalBlocks))
-	result.WriteString(fmt.Sprintf("%-15s %-15s\n", "Height", "Transactions"))
-	result.WriteString(strings.Repeat("─", 30) + "\n")
+	header := fmt.Sprintf("Blocks with Transactions (showing %d of %d)\n\n", len(bv.cachedBlocks), totalBlocks)
 	
-	for _, block := range bv.cachedBlocks {
-		result.WriteString(fmt.Sprintf("%-15d %-15d\n", 
-			block.Block.Height,
-			len(block.Transactions)))
-	}
-	
-	return result.String()
+	// Render the table directly (no extra styling wrapper)
+	return header + bv.table.View()
 }
 
 // Stop is a no-op for the blocks view
