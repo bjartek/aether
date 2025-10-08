@@ -88,7 +88,7 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 					continue
 				}
 
-				logg.Info().Err(err).Msg("getting transaction")
+				logg.Debug().Err(err).Msg("getting transaction")
 
 				select {
 				case channel <- BlockResult{Block: *block, Error: errors.Wrap(err, "getting transactions"), Logger: logg, View: 0, StartTime: start}:
@@ -110,11 +110,11 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 				StartTime:    start,
 			}
 
-			logg.Info().Uint64("height", block.Height).Int("txCount", len(transactions)).Msg("Sending block to channel")
+			logg.Debug().Uint64("height", block.Height).Int("txCount", len(transactions)).Msg("Sending block to channel")
 
 			select {
 			case channel <- blockResult:
-				logg.Info().Uint64("height", block.Height).Msg("Block sent to channel successfully")
+				logg.Debug().Uint64("height", block.Height).Msg("Block sent to channel successfully")
 				height = nextBlockToProcess
 			case <-ctx.Done():
 				close(channel)
@@ -137,23 +137,25 @@ func GetOverflowTransactionsForBlockID(ctx context.Context, o overflow.OverflowC
 
 	logg.Debug().Str("blockId", id.String()).Int("tx", len(tx)).Int("txR", len(txR)).Msg("Fetched tx")
 	for i, rp := range txR {
-		logg.Info().Int("txIndex", i).Msg("Processing transaction")
+		logg.Debug().Int("txIndex", i).Msg("Processing transaction")
 		t := *tx[i]
 		r := *rp
 
 		logg = logg.With().Str("txid", r.TransactionID.Hex()).Logger()
-		logg.Info().Msg("Creating overflow transaction")
 		ot, err := o.CreateOverflowTransaction(id.String(), r, t, i)
 		if err != nil {
 			logg.Error().Err(err).Msg("Failed to create overflow transaction")
 			panic(err)
 		}
 
-		logg.Info().Msg("appended transaction")
+		if ot.ProposalKey.Address.String() == "0x0000000000000000" && len(ot.Events) == 0 {
+			logg.Debug().Msg("skipping empty scheudle tx process")
+			continue
+		}
 		transactions = append(transactions, *ot)
 	}
-	
-	logg.Info().Int("totalTransactions", len(transactions)).Msg("Completed processing all transactions")
+
+	logg.Debug().Int("totalTransactions", len(transactions)).Msg("Completed processing all transactions")
 
 	return transactions, nil
 }

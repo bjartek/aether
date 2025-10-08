@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -47,11 +48,28 @@ func NewLoggerWithFile(logFilePath string, bufferSize int) (zerolog.Logger, *Log
 	// Create multi-writer for both file and TUI
 	multiWriter := io.MultiWriter(logFile, tuiWriter)
 
-	// Create console writer for pretty output
+	// Create console writer for pretty output with component prefix
 	consoleWriter := zerolog.ConsoleWriter{
 		Out:        multiWriter,
 		TimeFormat: "15:04:05",
 		NoColor:    false,
+		PartsOrder: []string{
+			zerolog.TimestampFieldName,
+			zerolog.LevelFieldName,
+			"component",
+			zerolog.MessageFieldName,
+		},
+		FormatFieldName: func(i interface{}) string {
+			// Hide the field name for component
+			if i == "component" {
+				return ""
+			}
+			return fmt.Sprintf("%s=", i)
+		},
+		FormatFieldValue: func(i interface{}) string {
+			// Add brackets around component value for visibility
+			return fmt.Sprintf("[%s]", i)
+		},
 	}
 
 	// Create logger
@@ -61,4 +79,9 @@ func NewLoggerWithFile(logFilePath string, bufferSize int) (zerolog.Logger, *Log
 		Logger()
 
 	return logger, tuiWriter, nil
+}
+
+// WithComponent creates a child logger with a component field
+func WithComponent(logger zerolog.Logger, component string) zerolog.Logger {
+	return logger.With().Str("component", component).Logger()
 }

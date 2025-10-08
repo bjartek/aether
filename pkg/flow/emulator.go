@@ -91,7 +91,7 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 		CheckpointPath:              conf.CheckpointPath,
 		StateHash:                   conf.StateHash,
 		ComputationReportingEnabled: conf.ComputationReportingEnabled,
-		//		ScheduledTransactionsEnabled: true, //not sure why this deploys it 2 times
+		//ScheduledTransactionsEnabled: true, // not sure why this deploys it 2 times
 	}
 
 	emu := server.NewEmulatorServer(logger, serverConf)

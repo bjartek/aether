@@ -61,7 +61,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		return err
 	}
 	a.Overflow = o
-	
+
 	// Initialize account registry after accounts are created
 	a.AccountRegistry = NewAccountRegistry(o)
 	dump := a.AccountRegistry.DebugDump()
@@ -117,14 +117,14 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 				}
 
 				// Log the block processing
-				totalDur := time.Since(br.StartTime)
 				txCount := len(br.Transactions)
 
-				l.Info().
-					Uint64("height", br.Block.Height).
-					Int64("durationMs", totalDur.Milliseconds()).
-					Int("txCount", txCount).
-					Msg("Processed block")
+				if txCount > 0 {
+					l.Info().
+						Uint64("height", br.Block.Height).
+						Int("txCount", txCount).
+						Msg("Processed block")
+				}
 			}
 		}
 	}()

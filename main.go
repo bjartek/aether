@@ -26,14 +26,24 @@ var _ embed.FS
 func main() {
 	// Parse command line flags
 	verbose := flag.Bool("verbose", false, "Enable verbose (debug) logging")
+	logFile := flag.String("log-file", "", "Log to file (e.g. aether-debug.log)")
 	flag.Parse()
 
-	// Create logger with file output for debugging and channel buffering (1000 log lines)
-	// This allows logging before the Tea program starts
-	logger, logWriter, err := logs.NewLoggerWithFile("aether-debug.log", 1000)
-	if err != nil {
-		fmt.Printf("Failed to create logger: %v\n", err)
-		os.Exit(1)
+	// Create logger with or without file output
+	var logger zerolog.Logger
+	var logWriter *logs.LogWriter
+	var err error
+
+	if *logFile != "" {
+		// Create logger with file output for debugging and channel buffering (1000 log lines)
+		logger, logWriter, err = logs.NewLoggerWithFile(*logFile, 1000)
+		if err != nil {
+			fmt.Printf("Failed to create logger: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		// Create logger without file output (TUI only)
+		logger, logWriter = logs.NewLogger(1000)
 	}
 
 	// Set log level based on verbose flag
@@ -43,42 +53,49 @@ func main() {
 		logger = logger.Level(zerolog.InfoLevel)
 	}
 
-	logger.Info().Msg("Logging to aether-debug.log for debugging")
-	logger.Info().Msg("Initializing Flow emulator and dev wallet...")
-	emu, dw, err2 := flow.InitEmulator(&logger)
+	// Create component-specific loggers
+	aetherLogger := logs.WithComponent(logger, "aether")
+	emulatorLogger := logs.WithComponent(logger, "emulator")
+	walletLogger := logs.WithComponent(logger, "dev-wallet")
+
+	if *logFile != "" {
+		aetherLogger.Info().Str("file", *logFile).Msg("Logging to file for debugging")
+	}
+	aetherLogger.Info().Msg("Initializing Flow emulator and dev wallet...")
+	emu, dw, err2 := flow.InitEmulator(&emulatorLogger)
 	if err2 != nil {
-		logger.Error().Err(err2).Msg("Failed to initialize Flow emulator & dev wallet")
+		aetherLogger.Error().Err(err2).Msg("Failed to initialize Flow emulator & dev wallet")
 		panic(err2)
 	}
-	logger.Info().Msg("Initialization complete")
+	aetherLogger.Info().Msg("Initialization complete")
 
 	// Channel to signal when emulator is ready
 	emulatorReady := make(chan struct{})
 
 	// Start emulator in background
 	go func() {
-		logger.Info().Msg("Starting Flow emulator...")
+		emulatorLogger.Info().Msg("Starting Flow emulator...")
 		go func() {
 			emu.Start()
-			logger.Info().Msg("Emulator stopped")
+			emulatorLogger.Info().Msg("Emulator stopped")
 		}()
 		
 		// Wait a moment for emulator to start listening
 		time.Sleep(500 * time.Millisecond)
-		logger.Info().Msg("Emulator is ready")
+		emulatorLogger.Info().Msg("Emulator is ready")
 		close(emulatorReady)
 	}()
 
 	// Start dev wallet in background
 	go func() {
-		logger.Info().Msg("Starting dev wallet...")
+		walletLogger.Info().Msg("Starting dev wallet...")
 		if err := dw.Start(); err != nil {
-			logger.Error().Err(err).Msg("Dev wallet stopped with error")
+			walletLogger.Error().Err(err).Msg("Dev wallet stopped with error")
 		}
 	}()
 
 	a := aether.Aether{
-		Logger: &logger,
+		Logger: &aetherLogger,
 		FclCdc: fclCdc,
 	}
 
@@ -91,7 +108,7 @@ func main() {
 	// Start aether server after emulator is ready with tea program
 	go func() {
 		<-emulatorReady
-		logger.Info().Msg("Starting aether server")
+		aetherLogger.Info().Msg("Starting aether server")
 		a.Start(p)
 	}()
 

@@ -3,7 +3,7 @@
 .DEFAULT_GOAL := run
 
 run: build
-	cd example && ../aether --verbose && cd ..
+	cd example && ../aether  && cd ..
 
 build:
 	go build .

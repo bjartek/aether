@@ -10,6 +10,26 @@ see cast <https://asciinema.org/a/rXpJIbBdELLwfQAy7Y6JZidiS> for a quick demo
 - navigate to a folder with flow.json
 - run `aether`
 
+### Command Line Flags
+
+- `--verbose` - Enable verbose (debug) logging
+- `--log-file <filename>` - Log to file (e.g. `aether --log-file aether-debug.log`)
+
+**Examples:**
+```bash
+# Run with default settings (info level, no file logging)
+aether
+
+# Run with verbose logging
+aether --verbose
+
+# Run with file logging
+aether --log-file debug.log
+
+# Run with both verbose and file logging
+aether --verbose --log-file debug.log
+```
+
 ## Local development
 
 run `make` to build the binary start it and run it in the example folder

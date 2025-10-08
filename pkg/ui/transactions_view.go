@@ -24,20 +24,20 @@ type ArgumentData struct {
 
 // TransactionData holds transaction information for display
 type TransactionData struct {
-	ID               string
-	BlockID          string
-	BlockHeight      uint64
-	Authorizers      []string // Can have multiple authorizers
-	Status           string
-	Proposer         string
-	Payer            string
-	GasLimit         uint64
-	Script           string
-	Arguments        []ArgumentData
-	Events           []overflow.OverflowEvent
-	Error            string
-	Timestamp        time.Time
-	Index            int
+	ID                string
+	BlockID           string
+	BlockHeight       uint64
+	Authorizers       []string // Can have multiple authorizers
+	Status            string
+	Proposer          string
+	Payer             string
+	GasLimit          uint64
+	Script            string
+	Arguments         []ArgumentData
+	Events            []overflow.OverflowEvent
+	Error             string
+	Timestamp         time.Time
+	Index             int
 	preRenderedDetail string // Cached detail text for performance
 }
 
@@ -48,12 +48,12 @@ type TransactionMsg struct {
 
 // TransactionsKeyMap defines keybindings for the transactions view
 type TransactionsKeyMap struct {
-	LineUp            key.Binding
-	LineDown          key.Binding
-	GotoTop           key.Binding
-	GotoEnd           key.Binding
-	ToggleFullDetail  key.Binding
-	ToggleEventFields key.Binding
+	LineUp             key.Binding
+	LineDown           key.Binding
+	GotoTop            key.Binding
+	GotoEnd            key.Binding
+	ToggleFullDetail   key.Binding
+	ToggleEventFields  key.Binding
 	ToggleRawAddresses key.Binding
 }
 
@@ -111,9 +111,9 @@ type TransactionsView struct {
 // NewTransactionsView creates a new transactions view
 func NewTransactionsView() *TransactionsView {
 	columns := []table.Column{
-		{Title: "ID", Width: 20},           // Truncated hex (8...8)
-		{Title: "Block", Width: 6},         // Slimmer for block numbers
-		{Title: "Authorizer", Width: 30},   // Wider to show friendly names
+		{Title: "ID", Width: 20},         // Truncated hex (8...8)
+		{Title: "Block", Width: 6},       // Slimmer for block numbers
+		{Title: "Authorizer", Width: 30}, // Wider to show friendly names
 		{Title: "Status", Width: 10},
 	}
 
@@ -138,7 +138,7 @@ func NewTransactionsView() *TransactionsView {
 	// Create viewport for detail view
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle()
-	
+
 	return &TransactionsView{
 		table:            t,
 		detailViewport:   vp,
@@ -217,7 +217,7 @@ func (tv *TransactionsView) formatEventFieldValue(val interface{}) string {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		
+
 		var parts []string
 		for _, k := range keys {
 			// Recursively format map values
@@ -247,7 +247,7 @@ func (tv *TransactionsView) formatEventFieldValue(val interface{}) string {
 func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, ot overflow.OverflowTransaction, registry *aether.AccountRegistry) {
 	tv.mu.Lock()
 	defer tv.mu.Unlock()
-	
+
 	// Store registry for use in rendering
 	if registry != nil {
 		tv.accountRegistry = registry
@@ -262,14 +262,14 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 	// Extract proposer and payer
 	proposer := "N/A"
 	if ot.ProposalKey.Address.String() != "" {
-		proposer = ot.ProposalKey.Address.Hex()
+		proposer = fmt.Sprintf("0x%s", ot.ProposalKey.Address.Hex())
 	}
 
 	payer := "N/A"
 	if ot.Payer != "" {
 		payer = ot.Payer
 	}
-	
+
 	// Debug: Log addresses if registry is available
 	if registry != nil {
 		// TODO: Remove debug logging once address mapping is working
@@ -329,7 +329,7 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 	}
 
 	tv.transactions = append(tv.transactions, txData)
-	
+
 	// Pre-render asynchronously in background (don't block)
 	go func() {
 		detail := tv.renderTransactionDetailText(txData)
@@ -359,7 +359,7 @@ func (tv *TransactionsView) updateDetailViewport() {
 		tv.detailViewport.SetContent("")
 		return
 	}
-	
+
 	selectedIdx := tv.table.Cursor()
 	if selectedIdx >= 0 && selectedIdx < len(tv.transactions) {
 		// Don't update if viewport isn't ready or sized
@@ -400,17 +400,17 @@ func (tv *TransactionsView) refreshTable() {
 			} else {
 				authDisplay = truncateHex(addr, 6, 4)
 			}
-			
+
 			// Add count if multiple authorizers
 			if len(tx.Authorizers) > 1 {
 				authDisplay += fmt.Sprintf(" +%d", len(tx.Authorizers)-1)
 			}
 		}
-		
+
 		rows[i] = table.Row{
-			truncateHex(tx.ID, 8, 8),           // Show start and end of ID
+			truncateHex(tx.ID, 8, 8), // Show start and end of ID
 			fmt.Sprintf("%d", tx.BlockHeight),
-			authDisplay,                         // Show friendly name or truncated address
+			authDisplay, // Show friendly name or truncated address
 			tx.Status,
 		}
 	}
@@ -431,7 +431,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		tableWidth := int(float64(width) * 0.4)
 		tv.table.SetWidth(tableWidth)
 		tv.table.SetHeight(height)
-		
+
 		// Update viewport size for full detail mode
 		tv.detailViewport.Width = width
 		tv.detailViewport.Height = height - 3 // Leave room for hint text
@@ -449,7 +449,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			}
 			return nil
 		}
-		
+
 		// Handle toggle event fields
 		if key.Matches(msg, tv.keys.ToggleEventFields) {
 			tv.showEventFields = !tv.showEventFields
@@ -464,7 +464,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			tv.mu.Unlock()
 			return nil
 		}
-		
+
 		// Handle toggle raw addresses
 		if key.Matches(msg, tv.keys.ToggleRawAddresses) {
 			tv.showRawAddresses = !tv.showRawAddresses
@@ -480,7 +480,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			tv.mu.Unlock()
 			return nil
 		}
-		
+
 		// In full detail mode, pass keys to viewport for scrolling
 		if tv.fullDetailMode {
 			var cmd tea.Cmd
@@ -568,6 +568,18 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 	details.WriteString(renderField("Block ID", tx.BlockID))
 	details.WriteString(renderField("Status", tx.Status))
 	details.WriteString(renderField("Index", fmt.Sprintf("%d", tx.Index)))
+	details.WriteString(renderField("Gas Limit", fmt.Sprintf("%d", tx.GasLimit)))
+	details.WriteString("\n")
+	
+	// Account table with fixed-width columns using lipgloss Width
+	colWidth := 20
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Width(colWidth)
+	valueStyle := lipgloss.NewStyle().Foreground(accentColor).Width(colWidth)
+	
+	// Headers
+	details.WriteString(headerStyle.Render("Proposer"))
+	details.WriteString(headerStyle.Render("Payer"))
+	details.WriteString(fieldStyle.Render("Authorizers"))
 	details.WriteString("\n")
 
 	// Format addresses with friendly names (unless raw mode is enabled)
@@ -575,27 +587,35 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 	if !tv.showRawAddresses && tv.accountRegistry != nil {
 		proposerDisplay = tv.accountRegistry.GetName(tx.Proposer)
 	}
-	details.WriteString(renderField("Proposer", proposerDisplay))
-	
+
 	payerDisplay := tx.Payer
 	if !tv.showRawAddresses && tv.accountRegistry != nil {
 		payerDisplay = tv.accountRegistry.GetName(tx.Payer)
 	}
-	details.WriteString(renderField("Payer", payerDisplay))
-	
-	// Handle multiple authorizers with friendly names
-	authDisplayList := make([]string, len(tx.Authorizers))
+
 	for i, auth := range tx.Authorizers {
+		var authDisplay string
 		if !tv.showRawAddresses && tv.accountRegistry != nil {
-			authDisplayList[i] = tv.accountRegistry.GetName(auth)
+			authDisplay = tv.accountRegistry.GetName(auth)
 		} else {
-			authDisplayList[i] = auth
+			authDisplay = auth
+		}
+		
+		if i == 0 {
+			// First line with proposer, payer, and first authorizer
+			details.WriteString(valueStyle.Render(proposerDisplay))
+			details.WriteString(valueStyle.Render(payerDisplay))
+			details.WriteString(valueStyleDetail.Render(authDisplay))
+			details.WriteString("\n")
+		} else {
+			// Additional authorizers aligned under the authorizer column
+			details.WriteString(valueStyle.Render(""))
+			details.WriteString(valueStyle.Render(""))
+			details.WriteString(valueStyleDetail.Render(authDisplay))
+			details.WriteString("\n")
 		}
 	}
-	authDisplay := strings.Join(authDisplayList, ", ")
-	details.WriteString(renderField("Authorizers", authDisplay))
-	
-	details.WriteString(renderField("Gas Limit", fmt.Sprintf("%d", tx.GasLimit)))
+
 	details.WriteString("\n")
 
 	if tx.Error != "" {
@@ -606,7 +626,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", fmt.Sprintf("Events (%d):", len(tx.Events)))) + "\n")
 		for i, event := range tx.Events {
 			details.WriteString(fmt.Sprintf("  %d. %s\n", i+1, fieldStyle.Render(event.Name)))
-			
+
 			// Display event fields if any and if showEventFields is true
 			if tv.showEventFields && len(event.Fields) > 0 {
 				// TODO: Use event.FieldOrder when available in overflow library
@@ -617,7 +637,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 					keys = append(keys, key)
 				}
 				sort.Strings(keys)
-				
+
 				// Find the longest key for alignment
 				maxKeyLen := 0
 				for _, key := range keys {
@@ -625,16 +645,16 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 						maxKeyLen = len(key)
 					}
 				}
-				
+
 				// Display fields aligned on ->
 				for _, key := range keys {
 					val := event.Fields[key]
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
-					
+
 					// Format value using helper function
 					valStr := tv.formatEventFieldValue(val)
-					
-					details.WriteString(fmt.Sprintf("     %s -> %s\n", 
+
+					details.WriteString(fmt.Sprintf("     %s -> %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))
 				}
@@ -645,7 +665,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 
 	if len(tx.Arguments) > 0 {
 		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", fmt.Sprintf("Arguments (%d):", len(tx.Arguments)))) + "\n")
-		
+
 		// Find the longest argument name for alignment
 		maxNameLen := 0
 		for _, arg := range tx.Arguments {
@@ -653,19 +673,19 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 				maxNameLen = len(arg.Name)
 			}
 		}
-		
+
 		// Display arguments aligned on ->
 		for _, arg := range tx.Arguments {
 			paddedName := fmt.Sprintf("%-*s", maxNameLen, arg.Name)
-			
+
 			// Format value - check if it's an address and show friendly name
 			valStr := arg.Value
 			if !tv.showRawAddresses && tv.accountRegistry != nil && strings.HasPrefix(valStr, "0x") && len(valStr) == 18 {
 				// Looks like an address, show only the friendly name
 				valStr = tv.accountRegistry.GetName(valStr)
 			}
-			
-			details.WriteString(fmt.Sprintf("  %s -> %s\n", 
+
+			details.WriteString(fmt.Sprintf("  %s -> %s\n",
 				valueStyleDetail.Render(paddedName),
 				valueStyleDetail.Render(valStr)))
 		}
@@ -705,14 +725,10 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 	renderField := func(label, value string) string {
 		return fieldStyle.Render(fmt.Sprintf("%-12s", label+":")) + " " + valueStyleDetail.Render(value) + "\n"
 	}
-	
-	renderFieldBlock := func(label, value string) string {
-		return fieldStyle.Render(label) + "\n" + valueStyleDetail.Render(value) + "\n"
-	}
 
 	var details strings.Builder
 	lineCount := 0
-	
+
 	// Title
 	details.WriteString(fieldStyle.Render("Transaction Details") + "\n\n")
 	lineCount += 2
@@ -722,42 +738,62 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 	details.WriteString(renderField("Block", fmt.Sprintf("%d", tx.BlockHeight)))
 	details.WriteString(renderField("Status", tx.Status))
 	lineCount += 3
-	
+
 	if lineCount+1 < maxLines {
 		details.WriteString("\n")
 		lineCount++
 	}
 
-	// Account info
-	if lineCount+6 < maxLines {
+	// Account info table (minimum 2 lines: header + at least one value line)
+	minLinesNeeded := 2 + len(tx.Authorizers)
+	if lineCount+minLinesNeeded < maxLines {
+		// Use same column layout as full detail view
+		colWidth := 20
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Width(colWidth)
+		valueStyle := lipgloss.NewStyle().Foreground(accentColor).Width(colWidth)
+		
+		// Headers
+		details.WriteString(headerStyle.Render("Proposer"))
+		details.WriteString(headerStyle.Render("Payer"))
+		details.WriteString(fieldStyle.Render("Authorizers"))
+		details.WriteString("\n")
+		lineCount++
+		
+		// Format addresses with friendly names
 		proposerDisplay := tx.Proposer
 		if !tv.showRawAddresses && tv.accountRegistry != nil {
-			// In condensed view, show only the friendly name
 			proposerDisplay = tv.accountRegistry.GetName(tx.Proposer)
 		}
-		details.WriteString(renderFieldBlock("Proposer", proposerDisplay))
-		lineCount += 2
 		
 		payerDisplay := tx.Payer
 		if !tv.showRawAddresses && tv.accountRegistry != nil {
-			// In condensed view, show only the friendly name
 			payerDisplay = tv.accountRegistry.GetName(tx.Payer)
 		}
-		details.WriteString(renderFieldBlock("Payer", payerDisplay))
-		lineCount += 2
 		
-		authDisplayList := make([]string, len(tx.Authorizers))
 		for i, auth := range tx.Authorizers {
+			var authDisplay string
 			if !tv.showRawAddresses && tv.accountRegistry != nil {
-				// In condensed view, show only the friendly name
-				authDisplayList[i] = tv.accountRegistry.GetName(auth)
+				authDisplay = tv.accountRegistry.GetName(auth)
 			} else {
-				authDisplayList[i] = auth
+				authDisplay = auth
+			}
+			
+			if i == 0 {
+				// First line with proposer, payer, and first authorizer
+				details.WriteString(valueStyle.Render(proposerDisplay))
+				details.WriteString(valueStyle.Render(payerDisplay))
+				details.WriteString(valueStyleDetail.Render(authDisplay))
+				details.WriteString("\n")
+				lineCount++
+			} else if lineCount < maxLines {
+				// Additional authorizers aligned under the authorizer column
+				details.WriteString(valueStyle.Render(""))
+				details.WriteString(valueStyle.Render(""))
+				details.WriteString(valueStyleDetail.Render(authDisplay))
+				details.WriteString("\n")
+				lineCount++
 			}
 		}
-		authDisplay := strings.Join(authDisplayList, ", ")
-		details.WriteString(renderFieldBlock("Authorizers", authDisplay))
-		lineCount += 2
 	}
 
 	// Error (if present)
@@ -778,7 +814,7 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 		}
 		details.WriteString(fieldStyle.Render(fmt.Sprintf("Events (%d):", len(tx.Events))) + "\n")
 		lineCount++
-		
+
 		eventsShown := 0
 		for i, event := range tx.Events {
 			if lineCount+2 >= maxLines {
@@ -787,7 +823,7 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 			details.WriteString(fmt.Sprintf("  %d. %s\n", i+1, fieldStyle.Render(event.Name)))
 			lineCount++
 			eventsShown++
-			
+
 			// Only show event fields if showEventFields is true and there's space
 			if tv.showEventFields && len(event.Fields) > 0 && lineCount+len(event.Fields)+1 < maxLines {
 				keys := make([]string, 0, len(event.Fields))
@@ -795,32 +831,32 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 					keys = append(keys, key)
 				}
 				sort.Strings(keys)
-				
+
 				maxKeyLen := 0
 				for _, key := range keys {
 					if len(key) > maxKeyLen {
 						maxKeyLen = len(key)
 					}
 				}
-				
+
 				for _, key := range keys {
 					if lineCount >= maxLines {
 						break
 					}
 					val := event.Fields[key]
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
-					
+
 					// Format value using helper function
 					valStr := tv.formatEventFieldValue(val)
-					
-					details.WriteString(fmt.Sprintf("     %s -> %s\n", 
+
+					details.WriteString(fmt.Sprintf("     %s -> %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))
 					lineCount++
 				}
 			}
 		}
-		
+
 		if eventsShown < len(tx.Events) {
 			details.WriteString(fmt.Sprintf("  ... and %d more\n", len(tx.Events)-eventsShown))
 		}
