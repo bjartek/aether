@@ -2,6 +2,8 @@
 
 Elevate you flow cli dev experience
 
+see cast https://asciinema.org/a/rXpJIbBdELLwfQAy7Y6JZidiS for a quick demo
+
 ## How to
 
 - go build the binary
