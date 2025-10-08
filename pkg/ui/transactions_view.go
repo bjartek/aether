@@ -24,20 +24,21 @@ type ArgumentData struct {
 
 // TransactionData holds transaction information for display
 type TransactionData struct {
-	ID          string
-	BlockID     string
-	BlockHeight uint64
-	Authorizers []string // Can have multiple authorizers
-	Status      string
-	Proposer    string
-	Payer       string
-	GasLimit    uint64
-	Script      string
-	Arguments   []ArgumentData
-	Events      []overflow.OverflowEvent
-	Error       string
-	Timestamp   time.Time
-	Index       int
+	ID               string
+	BlockID          string
+	BlockHeight      uint64
+	Authorizers      []string // Can have multiple authorizers
+	Status           string
+	Proposer         string
+	Payer            string
+	GasLimit         uint64
+	Script           string
+	Arguments        []ArgumentData
+	Events           []overflow.OverflowEvent
+	Error            string
+	Timestamp        time.Time
+	Index            int
+	preRenderedDetail string // Cached detail text for performance
 }
 
 // TransactionMsg is sent when a new transaction is received
@@ -328,6 +329,20 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 	}
 
 	tv.transactions = append(tv.transactions, txData)
+	
+	// Pre-render asynchronously in background (don't block)
+	go func() {
+		detail := tv.renderTransactionDetailText(txData)
+		tv.mu.Lock()
+		// Find and update the transaction
+		for i := range tv.transactions {
+			if tv.transactions[i].ID == txData.ID {
+				tv.transactions[i].preRenderedDetail = detail
+				break
+			}
+		}
+		tv.mu.Unlock()
+	}()
 
 	// Keep only the last maxTxs transactions
 	if len(tv.transactions) > tv.maxTxs {
@@ -335,18 +350,11 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 	}
 
 	tv.refreshTable()
-	
-	// Update viewport if in full detail mode
-	if tv.fullDetailMode {
-		tv.updateDetailViewport()
-	}
 }
 
 // updateDetailViewport updates the viewport content with current transaction details
 func (tv *TransactionsView) updateDetailViewport() {
-	tv.mu.RLock()
-	defer tv.mu.RUnlock()
-	
+	// Don't lock here - this is called from locked contexts
 	if len(tv.transactions) == 0 {
 		tv.detailViewport.SetContent("")
 		return
@@ -354,8 +362,18 @@ func (tv *TransactionsView) updateDetailViewport() {
 	
 	selectedIdx := tv.table.Cursor()
 	if selectedIdx >= 0 && selectedIdx < len(tv.transactions) {
-		detail := tv.renderTransactionDetailText(tv.transactions[selectedIdx])
-		tv.detailViewport.SetContent(detail)
+		// Don't update if viewport isn't ready or sized
+		if tv.detailViewport.Width == 0 || tv.detailViewport.Height == 0 {
+			return
+		}
+		// Use pre-rendered detail text for instant display
+		content := tv.transactions[selectedIdx].preRenderedDetail
+		if content == "" {
+			// Fallback if not pre-rendered
+			return
+		}
+		tv.detailViewport.SetContent(content)
+		tv.detailViewport.GotoTop() // Always start at top
 	}
 }
 
@@ -421,10 +439,13 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 	case tea.KeyMsg:
 		// Handle toggle full detail view
 		if key.Matches(msg, tv.keys.ToggleFullDetail) {
+			wasFullMode := tv.fullDetailMode
 			tv.fullDetailMode = !tv.fullDetailMode
 			// Update viewport content when entering full detail mode
-			if tv.fullDetailMode {
+			if !wasFullMode && tv.fullDetailMode {
+				tv.mu.RLock()
 				tv.updateDetailViewport()
+				tv.mu.RUnlock()
 			}
 			return nil
 		}
@@ -432,21 +453,31 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		// Handle toggle event fields
 		if key.Matches(msg, tv.keys.ToggleEventFields) {
 			tv.showEventFields = !tv.showEventFields
-			// Refresh viewport content
+			// Need to re-render all transactions with new setting
+			tv.mu.Lock()
+			for i := range tv.transactions {
+				tv.transactions[i].preRenderedDetail = tv.renderTransactionDetailText(tv.transactions[i])
+			}
 			if tv.fullDetailMode {
 				tv.updateDetailViewport()
 			}
+			tv.mu.Unlock()
 			return nil
 		}
 		
 		// Handle toggle raw addresses
 		if key.Matches(msg, tv.keys.ToggleRawAddresses) {
 			tv.showRawAddresses = !tv.showRawAddresses
-			// Refresh table and viewport
+			// Need to re-render all transactions with new setting
+			tv.mu.Lock()
 			tv.refreshTable()
+			for i := range tv.transactions {
+				tv.transactions[i].preRenderedDetail = tv.renderTransactionDetailText(tv.transactions[i])
+			}
 			if tv.fullDetailMode {
 				tv.updateDetailViewport()
 			}
+			tv.mu.Unlock()
 			return nil
 		}
 		
@@ -528,11 +559,6 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 	renderField := func(label, value string) string {
 		return fieldStyle.Render(fmt.Sprintf("%-12s", label+":")) + " " + valueStyleDetail.Render(value) + "\n"
 	}
-	
-	// Helper for label on one line, value on next
-	renderFieldBlock := func(label, value string) string {
-		return fieldStyle.Render(label) + "\n" + valueStyleDetail.Render(value) + "\n"
-	}
 
 	var details strings.Builder
 	details.WriteString(fieldStyle.Render("Transaction Details") + "\n\n")
@@ -547,30 +573,27 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 	// Format addresses with friendly names (unless raw mode is enabled)
 	proposerDisplay := tx.Proposer
 	if !tv.showRawAddresses && tv.accountRegistry != nil {
-		// In details pane, show only the friendly name
 		proposerDisplay = tv.accountRegistry.GetName(tx.Proposer)
 	}
-	details.WriteString(renderFieldBlock("Proposer", proposerDisplay))
+	details.WriteString(renderField("Proposer", proposerDisplay))
 	
 	payerDisplay := tx.Payer
 	if !tv.showRawAddresses && tv.accountRegistry != nil {
-		// In details pane, show only the friendly name
 		payerDisplay = tv.accountRegistry.GetName(tx.Payer)
 	}
-	details.WriteString(renderFieldBlock("Payer", payerDisplay))
+	details.WriteString(renderField("Payer", payerDisplay))
 	
 	// Handle multiple authorizers with friendly names
 	authDisplayList := make([]string, len(tx.Authorizers))
 	for i, auth := range tx.Authorizers {
 		if !tv.showRawAddresses && tv.accountRegistry != nil {
-			// In details pane, show only the friendly name
 			authDisplayList[i] = tv.accountRegistry.GetName(auth)
 		} else {
 			authDisplayList[i] = auth
 		}
 	}
 	authDisplay := strings.Join(authDisplayList, ", ")
-	details.WriteString(renderFieldBlock("Authorizers", authDisplay))
+	details.WriteString(renderField("Authorizers", authDisplay))
 	
 	details.WriteString(renderField("Gas Limit", fmt.Sprintf("%d", tx.GasLimit)))
 	details.WriteString("\n")
