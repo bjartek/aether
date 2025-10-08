@@ -15,7 +15,7 @@ import (
 
 var tableStyle = lipgloss.NewStyle().
 	BorderStyle(lipgloss.NormalBorder()).
-	BorderForeground(lipgloss.Color("240"))
+	BorderForeground(borderColor)
 
 // TickMsg is sent periodically to refresh the blocks view
 type TickMsg time.Time
@@ -90,12 +90,12 @@ func NewBlocksView(store *aether.Store) *BlocksView {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
+		BorderForeground(borderColor).
 		BorderBottom(true).
 		Bold(false)
 	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("229")).
-		Background(lipgloss.Color("57")).
+		Foreground(base03).
+		Background(solarBlue).
 		Bold(false)
 	t.SetStyles(s)
 

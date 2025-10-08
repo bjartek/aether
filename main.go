@@ -72,27 +72,23 @@ func main() {
 		}
 	}()
 
-	// Create store first so it can be shared
-	store := aether.NewStore()
-
 	a := aether.Aether{
 		Logger: &logger,
 		FclCdc: fclCdc,
-		Store:  store,
 	}
 
-	// Start aether server after emulator is ready
+	// Now create the Bubble Tea program
+	p := tea.NewProgram(
+		ui.NewModel(),
+		tea.WithAltScreen(), // Use alternate screen buffer
+	)
+
+	// Start aether server after emulator is ready with tea program
 	go func() {
 		<-emulatorReady
 		logger.Info().Msg("Starting aether server")
-		a.Start()
+		a.Start(p)
 	}()
-
-	// Now create the Bubble Tea program with the store
-	p := tea.NewProgram(
-		ui.NewModel(store),
-		tea.WithAltScreen(), // Use alternate screen buffer
-	)
 
 	// Attach the Tea program to the log writer
 	// This will drain any buffered logs and start sending new logs to the UI

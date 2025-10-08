@@ -10,6 +10,7 @@ import (
 
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/enescakir/emoji"
 	"github.com/rs/zerolog"
 )
@@ -18,16 +19,17 @@ type Aether struct {
 	Logger   *zerolog.Logger
 	FclCdc   []byte
 	Overflow *overflow.OverflowState
-	Store    *Store
 }
 
-func (a *Aether) Start() error {
-	ctx := context.Background()
+// BlockTransactionMsg is sent when a transaction is processed
+type BlockTransactionMsg struct {
+	BlockHeight uint64
+	BlockID     string
+	Transaction overflow.OverflowTransaction
+}
 
-	// Initialize store if not provided
-	if a.Store == nil {
-		a.Store = NewStore()
-	}
+func (a *Aether) Start(teaProgram *tea.Program) error {
+	ctx := context.Background()
 
 	// Define the two possible paths
 	path1 := "aether"
@@ -92,8 +94,16 @@ func (a *Aether) Start() error {
 					continue
 				}
 
-				// Store the block result
-				a.Store.Add(br)
+				// Send transactions directly to UI if there are any
+				if len(br.Transactions) > 0 && teaProgram != nil {
+					for _, tx := range br.Transactions {
+						teaProgram.Send(BlockTransactionMsg{
+							BlockHeight: br.Block.Height,
+							BlockID:     br.Block.ID.String(),
+							Transaction: tx,
+						})
+					}
+				}
 
 				// Log the block processing
 				totalDur := time.Since(br.StartTime)
@@ -103,8 +113,7 @@ func (a *Aether) Start() error {
 					Uint64("height", br.Block.Height).
 					Int64("durationMs", totalDur.Milliseconds()).
 					Int("txCount", txCount).
-					Int("totalBlocks", a.Store.Count()).
-					Msg("Processed and stored block")
+					Msg("Processed block")
 			}
 		}
 	}()

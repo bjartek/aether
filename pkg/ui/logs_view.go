@@ -147,7 +147,7 @@ func (lv *LogsView) View() string {
 
 	if len(lv.lines) == 0 {
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262")).
+			Foreground(mutedColor).
 			Render("Waiting for log entries...")
 	}
 

@@ -17,50 +17,57 @@ type Tab struct {
 
 // Model represents the application state.
 type Model struct {
-	tabs           []Tab
-	activeTab      int
-	logsTabIndex   int
-	blocksTabIndex int
-	logsView       *LogsView
-	blocksView     *BlocksView
-	help           help.Model
-	keys           KeyMap
-	showHelp       bool
-	width          int
-	height         int
-	ready          bool
-	helpHeight     int
+	tabs                []Tab
+	activeTab           int
+	dashboardTabIndex   int
+	transactionsTabIndex int
+	logsTabIndex        int
+	dashboardView       *DashboardView
+	transactionsView    *TransactionsView
+	logsView            *LogsView
+	help                help.Model
+	keys                KeyMap
+	showHelp            bool
+	width               int
+	height              int
+	ready               bool
+	helpHeight          int
 }
+
 // NewModel creates a new application model with default tabs.
-func NewModel(store *aether.Store) Model {
+func NewModel() Model {
 	tabs := []Tab{
-		{Name: "Blocks", Content: ""},   // Content will be rendered by BlocksView
-		{Name: "Logs", Content: ""},     // Content will be rendered by LogsView
-		{Name: "Settings", Content: "Settings tab content goes here."},
-		{Name: "About", Content: "About this application."},
+		{Name: "Dashboard", Content: ""},      // Content will be rendered by DashboardView
+		{Name: "Transactions", Content: ""},   // Content will be rendered by TransactionsView
+		{Name: "Logs", Content: ""},           // Content will be rendered by LogsView
 	}
 
 	return Model{
-		tabs:           tabs,
-		activeTab:      1, // Start on Logs tab
-		keys:           DefaultKeyMap(),
-		help:           help.New(),
-		showHelp:       false,
-		logsView:       NewLogsView(),
-		blocksView:     NewBlocksView(store),
-		logsTabIndex:   1, // Index of the Logs tab
-		blocksTabIndex: 0, // Index of the Blocks tab
+		tabs:                tabs,
+		activeTab:           0, // Start on Dashboard tab
+		keys:                DefaultKeyMap(),
+		help:                help.New(),
+		showHelp:            false,
+		dashboardView:       NewDashboardView(),
+		transactionsView:    NewTransactionsView(),
+		logsView:            NewLogsView(),
+		dashboardTabIndex:   0, // Index of the Dashboard tab
+		transactionsTabIndex: 1, // Index of the Transactions tab
+		logsTabIndex:        2, // Index of the Logs tab
 	}
 }
 
 // Init initializes the model.
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
+	if m.dashboardView != nil {
+		cmds = append(cmds, m.dashboardView.Init())
+	}
+	if m.transactionsView != nil {
+		cmds = append(cmds, m.transactionsView.Init())
+	}
 	if m.logsView != nil {
 		cmds = append(cmds, m.logsView.Init())
-	}
-	if m.blocksView != nil {
-		cmds = append(cmds, m.blocksView.Init())
 	}
 	return tea.Batch(cmds...)
 }
@@ -71,17 +78,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case TickMsg:
-		// Forward tick to blocks view if it's active
-		if m.blocksView != nil {
-			headerHeight := 3
-			footerHeight := 3
-			if m.showHelp {
-				footerHeight = lipgloss.Height(m.help.View(m.keys))
-			}
-			contentHeight := m.height - headerHeight - footerHeight
-			cmd = m.blocksView.Update(msg, m.width-4, contentHeight-2)
-			return m, cmd
+	case aether.BlockTransactionMsg:
+		// Forward transaction messages to the transactions view
+		if m.transactionsView != nil {
+			m.transactionsView.AddTransaction(
+				msg.BlockHeight,
+				msg.BlockID,
+				msg.Transaction,
+			)
 		}
 		return m, nil
 	
@@ -112,13 +116,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		contentHeight := m.height - headerHeight - footerHeight
 
-		// Update both views with new dimensions
-		if m.logsView != nil {
-			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
+		// Update all views with new dimensions
+		if m.dashboardView != nil {
+			cmd = m.dashboardView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
 		}
-		if m.blocksView != nil {
-			cmd = m.blocksView.Update(msg, m.width-4, contentHeight-2)
+		if m.transactionsView != nil {
+			cmd = m.transactionsView.Update(msg, m.width-4, contentHeight-2)
+			cmds = append(cmds, cmd)
+		}
+		if m.logsView != nil {
+			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
@@ -155,11 +163,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	contentHeight := m.height - headerHeight - footerHeight
 
 	// Update active view
-	if m.activeTab == m.logsTabIndex && m.logsView != nil {
-		cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
+	if m.activeTab == m.dashboardTabIndex && m.dashboardView != nil {
+		cmd = m.dashboardView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
-	} else if m.activeTab == m.blocksTabIndex && m.blocksView != nil {
-		cmd = m.blocksView.Update(msg, m.width-4, contentHeight-2)
+	} else if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
+		cmd = m.transactionsView.Update(msg, m.width-4, contentHeight-2)
+		cmds = append(cmds, cmd)
+	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
+		cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
 	}
 
@@ -222,12 +233,20 @@ func (m Model) renderHeader() string {
 
 // renderContent renders the main content area.
 func (m Model) renderContent(height int) string {
-	// Render blocks tab
-	if m.activeTab == m.blocksTabIndex && m.blocksView != nil {
+	// Render dashboard tab
+	if m.activeTab == m.dashboardTabIndex && m.dashboardView != nil {
 		return contentStyle.
 			Width(m.width - 2).
 			Height(height).
-			Render(m.blocksView.View())
+			Render(m.dashboardView.View())
+	}
+
+	// Render transactions tab
+	if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
+		return contentStyle.
+			Width(m.width - 2).
+			Height(height).
+			Render(m.transactionsView.View())
 	}
 
 	// Render logs tab
