@@ -16,16 +16,18 @@ import (
 )
 
 type Aether struct {
-	Logger   *zerolog.Logger
-	FclCdc   []byte
-	Overflow *overflow.OverflowState
+	Logger          *zerolog.Logger
+	FclCdc          []byte
+	Overflow        *overflow.OverflowState
+	AccountRegistry *AccountRegistry
 }
 
 // BlockTransactionMsg is sent when a transaction is processed
 type BlockTransactionMsg struct {
-	BlockHeight uint64
-	BlockID     string
-	Transaction overflow.OverflowTransaction
+	BlockHeight     uint64
+	BlockID         string
+	Transaction     overflow.OverflowTransaction
+	AccountRegistry *AccountRegistry
 }
 
 func (a *Aether) Start(teaProgram *tea.Program) error {
@@ -59,6 +61,14 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		return err
 	}
 	a.Overflow = o
+	
+	// Initialize account registry after accounts are created
+	a.AccountRegistry = NewAccountRegistry(o)
+	dump := a.AccountRegistry.DebugDump()
+	a.Logger.Info().
+		Int("accounts", len(a.AccountRegistry.addressToName)).
+		Interface("registry", dump).
+		Msg("Initialized account registry")
 
 	overflowChannel := make(chan flow.BlockResult)
 
@@ -98,9 +108,10 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 				if len(br.Transactions) > 0 && teaProgram != nil {
 					for _, tx := range br.Transactions {
 						teaProgram.Send(BlockTransactionMsg{
-							BlockHeight: br.Block.Height,
-							BlockID:     br.Block.ID.String(),
-							Transaction: tx,
+							BlockHeight:     br.Block.Height,
+							BlockID:         br.Block.ID.String(),
+							Transaction:     tx,
+							AccountRegistry: a.AccountRegistry,
 						})
 					}
 				}

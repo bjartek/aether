@@ -28,9 +28,13 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose (debug) logging")
 	flag.Parse()
 
-	// Create logger with channel buffering (1000 log lines)
+	// Create logger with file output for debugging and channel buffering (1000 log lines)
 	// This allows logging before the Tea program starts
-	logger, logWriter := logs.NewLogger(1000)
+	logger, logWriter, err := logs.NewLoggerWithFile("aether-debug.log", 1000)
+	if err != nil {
+		fmt.Printf("Failed to create logger: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Set log level based on verbose flag
 	if *verbose {
@@ -39,11 +43,12 @@ func main() {
 		logger = logger.Level(zerolog.InfoLevel)
 	}
 
+	logger.Info().Msg("Logging to aether-debug.log for debugging")
 	logger.Info().Msg("Initializing Flow emulator and dev wallet...")
-	emu, dw, err := flow.InitEmulator(&logger)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to initialize Flow emulator & dev wallet")
-		panic(err)
+	emu, dw, err2 := flow.InitEmulator(&logger)
+	if err2 != nil {
+		logger.Error().Err(err2).Msg("Failed to initialize Flow emulator & dev wallet")
+		panic(err2)
 	}
 	logger.Info().Msg("Initialization complete")
 

@@ -28,19 +28,16 @@ var (
 
 // ServiceInfo represents information about a running service
 type ServiceInfo struct {
-	Name string
-	Port string
+	Name   string
+	Port   string
 	Status string
 }
 
 // DashboardView displays service information and guidelines
 type DashboardView struct {
-	mu            sync.RWMutex
-	services      []ServiceInfo
-	latestBlock   uint64
-	totalBlocks   int
-	totalTxs      int
-	ready         bool
+	mu       sync.RWMutex
+	services []ServiceInfo
+	ready    bool
 }
 
 // NewDashboardView creates a new dashboard view
@@ -64,15 +61,6 @@ func (dv *DashboardView) Update(msg tea.Msg, width, height int) tea.Cmd {
 	return nil
 }
 
-// UpdateBlockInfo updates the block information displayed
-func (dv *DashboardView) UpdateBlockInfo(latestBlock uint64, totalBlocks int, totalTxs int) {
-	dv.mu.Lock()
-	defer dv.mu.Unlock()
-	dv.latestBlock = latestBlock
-	dv.totalBlocks = totalBlocks
-	dv.totalTxs = totalTxs
-}
-
 // View renders the dashboard view
 func (dv *DashboardView) View() string {
 	if !dv.ready {
@@ -91,12 +79,6 @@ func (dv *DashboardView) View() string {
 	content += sectionStyle.Render(
 		labelStyle.Render("Running Services:") + "\n" +
 			dv.renderServices(),
-	)
-
-	// Block information section
-	content += sectionStyle.Render(
-		labelStyle.Render("Blockchain Status:") + "\n" +
-			dv.renderBlockInfo(),
 	)
 
 	// Guidelines section
@@ -125,33 +107,27 @@ func (dv *DashboardView) renderServices() string {
 	return services
 }
 
-func (dv *DashboardView) renderBlockInfo() string {
-	if dv.totalBlocks == 0 {
-		return valueStyle.Render("  Waiting for blocks...") + "\n"
-	}
-
-	return fmt.Sprintf("  • Latest Block Height: %s\n"+
-		"  • Total Blocks Processed: %s\n"+
-		"  • Total Transactions: %s\n",
-		valueStyle.Render(fmt.Sprintf("%d", dv.latestBlock)),
-		valueStyle.Render(fmt.Sprintf("%d", dv.totalBlocks)),
-		valueStyle.Render(fmt.Sprintf("%d", dv.totalTxs)),
-	)
-}
-
 func (dv *DashboardView) renderGuidelines() string {
-	guidelines := `  Aether is an alternative frontend for the Flow blockchain.
+	guidelines := `  Aether is an alternative cli for the Flow blockchain.
   It combines multiple Flow CLI tools into a unified interface.
 
   Key Features:
-  • Real-time transaction monitoring
+  • Real-time transaction monitoring with detailed inspection
   • Service status tracking
-  • Comprehensive logging
+  • Comprehensive logging with auto-scroll
 
   Navigation:
   • Use Tab/→ and Shift+Tab/← to switch between panes
+  • In Transactions: Press Enter or 'd' to toggle full detail view
   • Press ? for help
   • Press q to quit
+
+  Built with:
+  • Overflow - Go toolkit for Flow blockchain
+    (github.com/bjartek/overflow)
+
+  ---
+  💭 Vibe-coded with Windsurf & Claude Sonnet 4.5 Thinking
 `
 	return valueStyle.Render(guidelines)
 }

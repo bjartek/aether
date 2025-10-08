@@ -85,6 +85,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				msg.BlockHeight,
 				msg.BlockID,
 				msg.Transaction,
+				msg.AccountRegistry,
 			)
 		}
 		return m, nil
@@ -269,11 +270,24 @@ func (m Model) renderContent(height int) string {
 // renderFooter renders the footer with help information.
 func (m Model) renderFooter() string {
 	var helpView string
+	
+	// Add tab-specific help hints
+	tabHints := ""
+	if m.activeTab == m.transactionsTabIndex {
+		tabHints = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render("  [j/k: navigate • enter/d: toggle detail • e: toggle event fields • g/G: top/bottom]")
+	} else if m.activeTab == m.logsTabIndex {
+		tabHints = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render("  [j/k: scroll • g/G: top/bottom • ctrl+u/d: page up/down]")
+	}
+	
 	if m.showHelp {
 		helpView = m.help.FullHelpView(m.keys.FullHelp())
 	} else {
 		helpView = m.help.ShortHelpView(m.keys.ShortHelp())
 	}
 
-	return footerStyle.Width(m.width).Render(helpView)
+	return footerStyle.Width(m.width).Render(helpView + tabHints)
 }
