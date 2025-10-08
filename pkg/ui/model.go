@@ -215,11 +215,11 @@ func (m Model) renderHeader() string {
 	if m.activeTab == m.transactionsTabIndex {
 		hints = lipgloss.NewStyle().
 			Foreground(mutedColor).
-			Render(" • j/k: navigate • enter/d: detail • e: events • a: addresses • g/G: top/bottom")
+			Render(" • /: filter • j/k: navigate • enter/d: detail • e: events • a: addresses • g/G: top/bottom")
 	} else if m.activeTab == m.logsTabIndex {
 		hints = lipgloss.NewStyle().
 			Foreground(mutedColor).
-			Render(" • j/k: scroll • g/G: top/bottom • ctrl+u/d: page")
+			Render(" • /: filter • j/k: scroll • g/G: top/bottom • ctrl+u/d: page")
 	}
 	
 	headerContent := tabBar + hints

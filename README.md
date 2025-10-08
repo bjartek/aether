@@ -54,6 +54,6 @@ run `make` to build the binary start it and run it in the example folder
 ## Planned features
 
 - [ ] run transactions/script
-- [ ] filter transactions
+- [x] filter transactions
 - [ ] show events with filters
 - [ ] show accounts

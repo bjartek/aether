@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,6 +20,7 @@ type LogsKeyMap struct {
 	GotoEnd  key.Binding
 	PageUp   key.Binding
 	PageDown key.Binding
+	Filter   key.Binding
 }
 
 // DefaultLogsKeyMap returns the default keybindings for logs view
@@ -47,27 +50,44 @@ func DefaultLogsKeyMap() LogsKeyMap {
 			key.WithKeys("ctrl+d", "pgdown"),
 			key.WithHelp("ctrl+d/pgdn", "page down"),
 		),
+		Filter: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter"),
+		),
 	}
 }
 
 // LogsView manages the logs display with a scrollable viewport.
 type LogsView struct {
-	viewport   viewport.Model
-	lines      []string
-	maxLines   int
-	keys       LogsKeyMap
-	ready      bool
-	autoScroll bool
+	viewport     viewport.Model
+	filterInput  textinput.Model
+	lines        []string
+	filteredLines []string
+	maxLines     int
+	keys         LogsKeyMap
+	ready        bool
+	autoScroll   bool
+	filterMode   bool
+	filterText   string
 }
 
 // NewLogsView creates a new logs view.
 func NewLogsView() *LogsView {
+	filterInput := textinput.New()
+	filterInput.Placeholder = "Filter logs..."
+	filterInput.CharLimit = 100
+	filterInput.Width = 50
+	
 	return &LogsView{
-		lines:      make([]string, 0),
-		maxLines:   10000, // Keep last 10000 lines in memory
-		keys:       DefaultLogsKeyMap(),
-		ready:      false,
-		autoScroll: true, // Start with auto-scroll enabled
+		lines:         make([]string, 0),
+		filteredLines: make([]string, 0),
+		maxLines:      10000, // Keep last 10000 lines in memory
+		keys:          DefaultLogsKeyMap(),
+		ready:         false,
+		autoScroll:    true, // Start with auto-scroll enabled
+		filterInput:   filterInput,
+		filterMode:    false,
+		filterText:    "",
 	}
 }
 
@@ -75,11 +95,72 @@ func (lv *LogsView) Init() tea.Cmd {
 	return nil
 }
 
+// applyFilter filters log lines based on current filter text
+func (lv *LogsView) applyFilter() {
+	if lv.filterText == "" {
+		// No filter, show all lines
+		lv.filteredLines = lv.lines
+	} else {
+		// Filter by substring match (case-insensitive)
+		lv.filteredLines = make([]string, 0)
+		filterLower := strings.ToLower(lv.filterText)
+		
+		for _, line := range lv.lines {
+			if strings.Contains(strings.ToLower(line), filterLower) {
+				lv.filteredLines = append(lv.filteredLines, line)
+			}
+		}
+	}
+}
+
 // Update handles messages for the logs view.
 func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		// Handle filter mode
+		if lv.filterMode {
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				// Exit filter mode and clear filter
+				lv.filterMode = false
+				lv.filterText = ""
+				lv.filterInput.SetValue("")
+				lv.applyFilter()
+				if lv.ready {
+					lv.viewport.SetContent(strings.Join(lv.filteredLines, "\n"))
+				}
+				return nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				// Apply filter and exit filter mode
+				lv.filterMode = false
+				lv.filterText = lv.filterInput.Value()
+				lv.applyFilter()
+				if lv.ready {
+					lv.viewport.SetContent(strings.Join(lv.filteredLines, "\n"))
+				}
+				return nil
+			default:
+				// Pass input to filter textinput
+				lv.filterInput, cmd = lv.filterInput.Update(msg)
+				// Update filter in real-time
+				lv.filterText = lv.filterInput.Value()
+				lv.applyFilter()
+				if lv.ready {
+					lv.viewport.SetContent(strings.Join(lv.filteredLines, "\n"))
+				}
+				return cmd
+			}
+		}
+		
+		// Handle filter activation
+		if key.Matches(msg, lv.keys.Filter) {
+			lv.filterMode = true
+			lv.filterInput.Focus()
+			return textinput.Blink
+		}
+		
 	case logs.LogLineMsg:
 		if msg.Err != nil {
 			// Handle error - could add error display
@@ -101,9 +182,10 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				lv.lines = lv.lines[len(lv.lines)-lv.maxLines:]
 			}
 
-			// Update viewport content
+			// Apply filter and update viewport content
+			lv.applyFilter()
 			if lv.ready {
-				lv.viewport.SetContent(strings.Join(lv.lines, "\n"))
+				lv.viewport.SetContent(strings.Join(lv.filteredLines, "\n"))
 				// Only auto-scroll if we were at the bottom
 				if atBottom {
 					lv.viewport.GotoBottom()
@@ -116,7 +198,8 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 	case tea.WindowSizeMsg:
 		if !lv.ready {
 			lv.viewport = viewport.New(width, height)
-			lv.viewport.SetContent(strings.Join(lv.lines, "\n"))
+			lv.applyFilter()
+			lv.viewport.SetContent(strings.Join(lv.filteredLines, "\n"))
 
 			// Configure viewport key bindings to match our custom keys
 			lv.viewport.KeyMap = viewport.KeyMap{
@@ -134,8 +217,10 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 
 	}
 
-	// Update viewport (handles all key navigation including our custom bindings)
-	lv.viewport, cmd = lv.viewport.Update(msg)
+	// Update viewport (handles all key navigation including our custom bindings) - only if not in filter mode
+	if !lv.filterMode {
+		lv.viewport, cmd = lv.viewport.Update(msg)
+	}
 	return cmd
 }
 
@@ -151,6 +236,25 @@ func (lv *LogsView) View() string {
 			Render("Waiting for log entries...")
 	}
 
+	// Show filter input if in filter mode
+	var filterBar string
+	if lv.filterMode {
+		filterStyle := lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true)
+		filterBar = filterStyle.Render("Filter: ") + lv.filterInput.View() + "\n"
+	} else if lv.filterText != "" {
+		// Show active filter indicator
+		filterStyle := lipgloss.NewStyle().
+			Foreground(mutedColor)
+		matchCount := len(lv.filteredLines)
+		totalCount := len(lv.lines)
+		filterBar = filterStyle.Render(fmt.Sprintf("Filter: '%s' (%d/%d lines) • Press / to edit, Esc to clear", lv.filterText, matchCount, totalCount)) + "\n"
+	}
+
+	if filterBar != "" {
+		return filterBar + lv.viewport.View()
+	}
 	return lv.viewport.View()
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -55,6 +56,7 @@ type TransactionsKeyMap struct {
 	ToggleFullDetail   key.Binding
 	ToggleEventFields  key.Binding
 	ToggleRawAddresses key.Binding
+	Filter             key.Binding
 }
 
 // DefaultTransactionsKeyMap returns the default keybindings for transactions view
@@ -88,24 +90,32 @@ func DefaultTransactionsKeyMap() TransactionsKeyMap {
 			key.WithKeys("a"),
 			key.WithHelp("a", "toggle raw addresses"),
 		),
+		Filter: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter"),
+		),
 	}
 }
 
 // TransactionsView manages the transactions table and detail display
 type TransactionsView struct {
-	mu               sync.RWMutex
-	table            table.Model
-	detailViewport   viewport.Model
-	keys             TransactionsKeyMap
-	ready            bool
-	transactions     []TransactionData
-	maxTxs           int
-	width            int
-	height           int
-	fullDetailMode   bool // Toggle between split and full-screen detail view
-	showEventFields  bool // Toggle showing event field details
-	showRawAddresses bool // Toggle showing raw addresses vs friendly names
-	accountRegistry  *aether.AccountRegistry
+	mu                sync.RWMutex
+	table             table.Model
+	detailViewport    viewport.Model
+	filterInput       textinput.Model
+	keys              TransactionsKeyMap
+	ready             bool
+	transactions      []TransactionData
+	filteredTxs       []TransactionData
+	maxTxs            int
+	width             int
+	height            int
+	fullDetailMode    bool   // Toggle between split and full-screen detail view
+	showEventFields   bool   // Toggle showing event field details
+	showRawAddresses  bool   // Toggle showing raw addresses vs friendly names
+	filterMode        bool   // Whether filter input is active
+	filterText        string // Current filter text
+	accountRegistry   *aether.AccountRegistry
 }
 
 // NewTransactionsView creates a new transactions view
@@ -131,28 +141,39 @@ func NewTransactionsView() *TransactionsView {
 		Bold(false)
 	s.Selected = s.Selected.
 		Foreground(base03).
-		Background(solarBlue).
+		Background(solarYellow).
 		Bold(false)
+	
 	t.SetStyles(s)
 
 	// Create viewport for detail view
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle()
 
+	// Create filter input
+	filterInput := textinput.New()
+	filterInput.Placeholder = "Filter by authorizer name..."
+	filterInput.CharLimit = 50
+	filterInput.Width = 50
+
+	const maxTransactions = 100
+	
 	return &TransactionsView{
 		table:            t,
 		detailViewport:   vp,
+		filterInput:      filterInput,
 		keys:             DefaultTransactionsKeyMap(),
 		ready:            false,
-		transactions:     make([]TransactionData, 0),
-		maxTxs:           1000, // Keep last 1000 transactions
+		transactions:     make([]TransactionData, 0, maxTransactions),
+		filteredTxs:      make([]TransactionData, 0),
+		maxTxs:           maxTransactions,
 		fullDetailMode:   false,
-		showEventFields:  true,  // Show event fields by default
+		showEventFields:  false,
 		showRawAddresses: false, // Show friendly names by default
+		filterMode:       false,
+		filterText:       "",
 	}
 }
-
-// Init initializes the transactions view
 func (tv *TransactionsView) Init() tea.Cmd {
 	return nil
 }
@@ -377,10 +398,44 @@ func (tv *TransactionsView) updateDetailViewport() {
 	}
 }
 
+// applyFilter filters transactions based on current filter text
+func (tv *TransactionsView) applyFilter() {
+	if tv.filterText == "" {
+		// No filter, show all transactions
+		tv.filteredTxs = tv.transactions
+	} else {
+		// Filter by authorizer friendly name
+		tv.filteredTxs = make([]TransactionData, 0)
+		filterLower := strings.ToLower(tv.filterText)
+		
+		for _, tx := range tv.transactions {
+			for _, authAddr := range tx.Authorizers {
+				// Get friendly name if available
+				name := authAddr
+				if tv.accountRegistry != nil {
+					name = tv.accountRegistry.GetName(authAddr)
+				}
+				
+				// Check if name matches filter
+				if strings.Contains(strings.ToLower(name), filterLower) {
+					tv.filteredTxs = append(tv.filteredTxs, tx)
+					break // Only add transaction once even if multiple authorizers match
+				}
+			}
+		}
+	}
+}
+
 // refreshTable updates the table rows from transactions
 func (tv *TransactionsView) refreshTable() {
-	rows := make([]table.Row, len(tv.transactions))
-	for i, tx := range tv.transactions {
+	// Use filtered list if filter is active
+	txList := tv.transactions
+	if tv.filterText != "" {
+		txList = tv.filteredTxs
+	}
+	
+	rows := make([]table.Row, len(txList))
+	for i, tx := range txList {
 		// Show first authorizer in table with friendly name if available
 		authDisplay := "N/A"
 		if len(tx.Authorizers) > 0 {
@@ -437,6 +492,49 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		tv.detailViewport.Height = height - 3 // Leave room for hint text
 
 	case tea.KeyMsg:
+		// Handle filter mode
+		if tv.filterMode {
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				// Exit filter mode and clear filter
+				tv.filterMode = false
+				tv.filterText = ""
+				tv.filterInput.SetValue("")
+				tv.mu.Lock()
+				tv.applyFilter()
+				tv.refreshTable()
+				tv.mu.Unlock()
+				return nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				// Apply filter and exit filter mode
+				tv.filterMode = false
+				tv.filterText = tv.filterInput.Value()
+				tv.mu.Lock()
+				tv.applyFilter()
+				tv.refreshTable()
+				tv.mu.Unlock()
+				return nil
+			default:
+				// Pass input to filter textinput
+				var cmd tea.Cmd
+				tv.filterInput, cmd = tv.filterInput.Update(msg)
+				// Update filter in real-time
+				tv.filterText = tv.filterInput.Value()
+				tv.mu.Lock()
+				tv.applyFilter()
+				tv.refreshTable()
+				tv.mu.Unlock()
+				return cmd
+			}
+		}
+		
+		// Handle filter activation
+		if key.Matches(msg, tv.keys.Filter) {
+			tv.filterMode = true
+			tv.filterInput.Focus()
+			return textinput.Blink
+		}
+		
 		// Handle toggle full detail view
 		if key.Matches(msg, tv.keys.ToggleFullDetail) {
 			wasFullMode := tv.fullDetailMode
@@ -519,6 +617,21 @@ func (tv *TransactionsView) View() string {
 			Render("Press Enter or 'd' to return to table view | j/k to scroll")
 		return hint + "\n\n" + tv.detailViewport.View()
 	}
+	
+	// Show filter input if in filter mode
+	var filterBar string
+	if tv.filterMode {
+		filterStyle := lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true)
+		filterBar = filterStyle.Render("Filter: ") + tv.filterInput.View() + "\n"
+	} else if tv.filterText != "" {
+		// Show active filter indicator
+		filterStyle := lipgloss.NewStyle().
+			Foreground(mutedColor)
+		matchCount := len(tv.filteredTxs)
+		filterBar = filterStyle.Render(fmt.Sprintf("Filter: '%s' (%d matches) • Press / to edit, Esc to clear", tv.filterText, matchCount)) + "\n"
+	}
 
 	// Split view mode - table on left, detail on right
 	// Calculate widths: 40% table, 60% details (wider details pane)
@@ -543,11 +656,17 @@ func (tv *TransactionsView) View() string {
 		Render(tv.table.View())
 
 	// Combine table and detail side by side
-	return lipgloss.JoinHorizontal(
+	mainView := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		tableView,
 		detailView,
 	)
+	
+	// Add filter bar on top if present
+	if filterBar != "" {
+		return filterBar + mainView
+	}
+	return mainView
 }
 
 // renderTransactionDetailText renders transaction details as plain text (for viewport)
