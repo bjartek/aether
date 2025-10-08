@@ -12,20 +12,12 @@ import (
 )
 
 type BlockResult struct {
-	Block              flow.Block
-	Transactions       []overflow.OverflowTransaction
-	SystemChunkEvents  []overflow.OverflowEvent
-	SystemTransactions []overflow.OverflowTransaction
-	Error              error
-	Logger             zerolog.Logger
-	View               uint64
-	StartTime          time.Time
-}
-
-type OverflowBlockTransactions struct {
-	Transactions      []overflow.OverflowTransaction
-	SystemEvents      []overflow.OverflowEvent
-	SystemTransaction []overflow.OverflowTransaction
+	Block        flow.Block
+	Transactions []overflow.OverflowTransaction
+	Error        error
+	Logger       zerolog.Logger
+	View         uint64
+	StartTime    time.Time
 }
 
 func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll time.Duration, height uint64, logger *zerolog.Logger, channel chan<- BlockResult) error {
@@ -87,7 +79,7 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 			readDur := time.Since(start)
 			logg.Debug().Uint64("block", block.Height).Uint64("latestBlock", latestKnownBlock.Height).Float64("readDur", readDur.Seconds()).Msg("block read")
 
-			otb, err := GetOverflowTransactionsForBlockID(ctx, o, block.ID, logg)
+			transactions, err := GetOverflowTransactionsForBlockID(ctx, o, block.ID, logg)
 			if err != nil {
 				if strings.Contains(err.Error(), "context canceled") {
 					return nil
@@ -99,7 +91,7 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 				logg.Info().Err(err).Msg("getting transaction")
 
 				select {
-				case channel <- BlockResult{Block: *block, SystemChunkEvents: otb.SystemEvents, Error: errors.Wrap(err, "getting transactions"), Logger: logg, View: 0, StartTime: start}:
+				case channel <- BlockResult{Block: *block, Error: errors.Wrap(err, "getting transactions"), Logger: logg, View: 0, StartTime: start}:
 					height = nextBlockToProcess
 				case <-ctx.Done():
 					close(channel)
@@ -107,21 +99,19 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 				}
 				continue
 			}
-			logg.Debug().Int("tx", len(otb.Transactions)).Msg("fetched transactions")
-			logg = logg.With().Int("tx", len(otb.Transactions)).Logger()
-			
+			logg = logg.With().Int("tx", len(transactions)).Logger()
+			logg.Debug().Msg("fetched transactions")
+
 			blockResult := BlockResult{
-				Block:              *block,
-				Transactions:       otb.Transactions,
-				SystemChunkEvents:  otb.SystemEvents,
-				SystemTransactions: otb.SystemTransaction,
-				Logger:             logg,
-				View:               0,
-				StartTime:          start,
+				Block:        *block,
+				Transactions: transactions,
+				Logger:       logg,
+				View:         0,
+				StartTime:    start,
 			}
-			
-			logg.Info().Uint64("height", block.Height).Int("txCount", len(otb.Transactions)).Msg("Sending block to channel")
-			
+
+			logg.Info().Uint64("height", block.Height).Int("txCount", len(transactions)).Msg("Sending block to channel")
+
 			select {
 			case channel <- blockResult:
 				logg.Info().Uint64("height", block.Height).Msg("Block sent to channel successfully")
@@ -137,10 +127,8 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 	}
 }
 
-func GetOverflowTransactionsForBlockID(ctx context.Context, o overflow.OverflowClient, id flow.Identifier, logg zerolog.Logger) (*OverflowBlockTransactions, error) {
-	// sometimes this will become too complex.
-
-	ofb := OverflowBlockTransactions{}
+func GetOverflowTransactionsForBlockID(ctx context.Context, o overflow.OverflowClient, id flow.Identifier, logg zerolog.Logger) ([]overflow.OverflowTransaction, error) {
+	transactions := []overflow.OverflowTransaction{}
 
 	tx, txR, err := o.GetTransactionsByBlockId(ctx, id)
 	if err != nil {
@@ -149,33 +137,23 @@ func GetOverflowTransactionsForBlockID(ctx context.Context, o overflow.OverflowC
 
 	logg.Debug().Str("blockId", id.String()).Int("tx", len(tx)).Int("txR", len(txR)).Msg("Fetched tx")
 	for i, rp := range txR {
-
-		logg = logg.With().Str("txid", rp.TransactionID.Hex()).Logger()
-		// on network emulator we never have system chunk transactions it looks like
-
+		logg.Info().Int("txIndex", i).Msg("Processing transaction")
 		t := *tx[i]
 		r := *rp
+
+		logg = logg.With().Str("txid", r.TransactionID.Hex()).Logger()
+		logg.Info().Msg("Creating overflow transaction")
 		ot, err := o.CreateOverflowTransaction(id.String(), r, t, i)
 		if err != nil {
+			logg.Error().Err(err).Msg("Failed to create overflow transaction")
 			panic(err)
 		}
 
-		if rp.CollectionID == flow.EmptyID {
-			systemChunkEvents := ot.Events
-
-			// these buggers are reported as no collection id but they are not system transactions per se. that is they do not share a transaction id
-			if strings.Contains(string(ot.Script), "scheduler.executeTransaction(id: id)") {
-				ofb.Transactions = append(ofb.Transactions, *ot)
-			} else {
-				ofb.SystemTransaction = append(ofb.SystemTransaction, *ot)
-				ofb.SystemEvents = append(ofb.SystemEvents, systemChunkEvents...)
-			}
-
-			continue
-		}
-
-		ofb.Transactions = append(ofb.Transactions, *ot)
+		logg.Info().Msg("appended transaction")
+		transactions = append(transactions, *ot)
 	}
+	
+	logg.Info().Int("totalTransactions", len(transactions)).Msg("Completed processing all transactions")
 
-	return &ofb, nil
+	return transactions, nil
 }

@@ -52,24 +52,25 @@ func DefaultLogsKeyMap() LogsKeyMap {
 
 // LogsView manages the logs display with a scrollable viewport.
 type LogsView struct {
-	viewport viewport.Model
-	lines    []string
-	maxLines int
-	keys     LogsKeyMap
-	ready    bool
+	viewport   viewport.Model
+	lines      []string
+	maxLines   int
+	keys       LogsKeyMap
+	ready      bool
+	autoScroll bool
 }
 
 // NewLogsView creates a new logs view.
 func NewLogsView() *LogsView {
 	return &LogsView{
-		lines:    make([]string, 0),
-		maxLines: 1000, // Keep last 1000 lines in memory
-		keys:     DefaultLogsKeyMap(),
-		ready:    false,
+		lines:      make([]string, 0),
+		maxLines:   10000, // Keep last 10000 lines in memory
+		keys:       DefaultLogsKeyMap(),
+		ready:      false,
+		autoScroll: true, // Start with auto-scroll enabled
 	}
 }
 
-// Init initializes the logs view.
 func (lv *LogsView) Init() tea.Cmd {
 	return nil
 }
@@ -116,37 +117,24 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if !lv.ready {
 			lv.viewport = viewport.New(width, height)
 			lv.viewport.SetContent(strings.Join(lv.lines, "\n"))
+
+			// Configure viewport key bindings to match our custom keys
+			lv.viewport.KeyMap = viewport.KeyMap{
+				PageDown: lv.keys.PageDown,
+				PageUp:   lv.keys.PageUp,
+				Down:     lv.keys.LineDown,
+				Up:       lv.keys.LineUp,
+			}
+
 			lv.ready = true
 		} else {
 			lv.viewport.Width = width
 			lv.viewport.Height = height
 		}
 
-	case tea.KeyMsg:
-		// Handle keybindings using key.Matches
-		switch {
-		case key.Matches(msg, lv.keys.LineDown):
-			lv.viewport.ViewDown()
-			return nil
-		case key.Matches(msg, lv.keys.LineUp):
-			lv.viewport.ViewUp()
-			return nil
-		case key.Matches(msg, lv.keys.GotoTop):
-			lv.viewport.GotoTop()
-			return nil
-		case key.Matches(msg, lv.keys.GotoEnd):
-			lv.viewport.GotoBottom()
-			return nil
-		case key.Matches(msg, lv.keys.PageDown):
-			lv.viewport.HalfViewDown()
-			return nil
-		case key.Matches(msg, lv.keys.PageUp):
-			lv.viewport.HalfViewUp()
-			return nil
-		}
 	}
 
-	// Update viewport (handles scrolling with arrow keys and page up/down)
+	// Update viewport (handles all key navigation including our custom bindings)
 	lv.viewport, cmd = lv.viewport.Update(msg)
 	return cmd
 }

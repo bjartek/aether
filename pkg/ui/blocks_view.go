@@ -2,11 +2,14 @@ package ui
 
 import (
 	"fmt"
-	"time"
+	"strings"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/debug"
+	"github.com/bjartek/aether/pkg/flow"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -57,20 +60,23 @@ func DefaultBlocksKeyMap() BlocksKeyMap {
 
 // BlocksView manages the blocks table display
 type BlocksView struct {
-	table table.Model
-	store *aether.Store
-	keys  BlocksKeyMap
-	ready bool
+	table         table.Model
+	viewport      viewport.Model
+	store         *aether.Store
+	keys          BlocksKeyMap
+	ready         bool
+	active        bool
+	renderCount   int
+	cachedBlocks  []flow.BlockResult
+	lastBlockCount int
+	maxBlocks     int // Maximum number of blocks to display
 }
 
 // NewBlocksView creates a new blocks view
 func NewBlocksView(store *aether.Store) *BlocksView {
 	columns := []table.Column{
-		{Title: "Height", Width: 10},
-		{Title: "Transactions", Width: 12},
-		{Title: "System Tx", Width: 10},
-		{Title: "Events", Width: 10},
-		{Title: "Duration", Width: 12},
+		{Title: "Height", Width: 15},
+		{Title: "Transactions", Width: 15},
 	}
 
 	t := table.New(
@@ -92,10 +98,11 @@ func NewBlocksView(store *aether.Store) *BlocksView {
 	t.SetStyles(s)
 
 	return &BlocksView{
-		table: t,
-		store: store,
-		keys:  DefaultBlocksKeyMap(),
-		ready: false,
+		table:      t,
+		store:      store,
+		keys:       DefaultBlocksKeyMap(),
+		ready:      false,
+		maxBlocks:  100, // Limit to 100 most recent blocks
 	}
 }
 
@@ -106,19 +113,30 @@ func (bv *BlocksView) Init() tea.Cmd {
 
 // Update handles messages for the blocks view
 func (bv *BlocksView) Update(msg tea.Msg, width, height int) tea.Cmd {
-	var cmd tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		debug.Logger.Info().Int("width", width).Int("height", height).Msg("BlocksView WindowSizeMsg")
 		if !bv.ready {
-			bv.table.SetWidth(width)
-			bv.table.SetHeight(height)
+			bv.viewport = viewport.New(width, height)
+			bv.viewport.KeyMap = viewport.KeyMap{
+				PageDown: bv.keys.PageDown,
+				PageUp:   bv.keys.PageUp,
+				Down:     bv.keys.LineDown,
+				Up:       bv.keys.LineUp,
+			}
 			bv.ready = true
 		} else {
-			bv.table.SetWidth(width)
-			bv.table.SetHeight(height)
+			bv.viewport.Width = width
+			bv.viewport.Height = height
 		}
+		bv.table.SetWidth(width)
+		bv.table.SetHeight(height)
+		// Refresh data when window is resized
+		debug.Logger.Info().Msg("Calling refreshData from WindowSizeMsg")
+		bv.refreshData()
+		debug.Logger.Info().Msg("refreshData completed")
 	case tea.KeyMsg:
+		debug.Logger.Info().Str("key", msg.String()).Msg("BlocksView KeyMsg")
 		// Handle keybindings using key.Matches
 		switch {
 		case key.Matches(msg, bv.keys.LineDown):
@@ -142,12 +160,8 @@ func (bv *BlocksView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		}
 	}
 
-	// Update table data from store
-	bv.refreshData()
-
-	// Update table (handles scrolling with arrow keys)
-	bv.table, cmd = bv.table.Update(msg)
-	return cmd
+	// No viewport update needed since we're using simple text rendering
+	return nil
 }
 
 // refreshData updates the table rows from the store
@@ -156,17 +170,22 @@ func (bv *BlocksView) refreshData() {
 		return
 	}
 
-	blocks := bv.store.GetAll()
-	rows := make([]table.Row, len(blocks))
-
-	for i, block := range blocks {
-		duration := time.Since(block.StartTime)
+	// Check if we need to refresh by comparing block count
+	currentCount := bv.store.Count()
+	if currentCount == bv.lastBlockCount {
+		return // No new blocks
+	}
+	
+	// Get only the latest N blocks to avoid copying too much data
+	bv.cachedBlocks = bv.store.GetLatest(bv.maxBlocks)
+	bv.lastBlockCount = currentCount
+	
+	// Build table rows from cached blocks
+	rows := make([]table.Row, len(bv.cachedBlocks))
+	for i, block := range bv.cachedBlocks {
 		rows[i] = table.Row{
 			fmt.Sprintf("%d", block.Block.Height),
 			fmt.Sprintf("%d", len(block.Transactions)),
-			fmt.Sprintf("%d", len(block.SystemTransactions)),
-			fmt.Sprintf("%d", len(block.SystemChunkEvents)),
-			fmt.Sprintf("%dms", duration.Milliseconds()),
 		}
 	}
 
@@ -179,13 +198,31 @@ func (bv *BlocksView) View() string {
 		return "Loading blocks..."
 	}
 
-	if bv.store == nil || bv.store.Count() == 0 {
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262")).
-			Render("No blocks processed yet...")
+	if bv.store == nil {
+		return "Store not initialized..."
+	}
+	
+	// Refresh data if needed (checks internally if refresh is necessary)
+	bv.refreshData()
+	
+	if len(bv.cachedBlocks) == 0 {
+		return "No blocks processed yet..."
 	}
 
-	return tableStyle.Render(bv.table.View())
+	// Build view from cached blocks
+	var result strings.Builder
+	totalBlocks := bv.store.Count()
+	result.WriteString(fmt.Sprintf("Blocks with Transactions (showing %d of %d)\n\n", len(bv.cachedBlocks), totalBlocks))
+	result.WriteString(fmt.Sprintf("%-15s %-15s\n", "Height", "Transactions"))
+	result.WriteString(strings.Repeat("─", 30) + "\n")
+	
+	for _, block := range bv.cachedBlocks {
+		result.WriteString(fmt.Sprintf("%-15d %-15d\n", 
+			block.Block.Height,
+			len(block.Transactions)))
+	}
+	
+	return result.String()
 }
 
 // Stop is a no-op for the blocks view

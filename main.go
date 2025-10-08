@@ -72,9 +72,13 @@ func main() {
 		}
 	}()
 
+	// Create store first so it can be shared
+	store := aether.NewStore()
+
 	a := aether.Aether{
 		Logger: &logger,
 		FclCdc: fclCdc,
+		Store:  store,
 	}
 
 	// Start aether server after emulator is ready
@@ -86,7 +90,7 @@ func main() {
 
 	// Now create the Bubble Tea program with the store
 	p := tea.NewProgram(
-		ui.NewModel(a.Store),
+		ui.NewModel(store),
 		tea.WithAltScreen(), // Use alternate screen buffer
 	)
 

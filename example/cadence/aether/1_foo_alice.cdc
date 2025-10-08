@@ -2,6 +2,7 @@ import "Counter"
 
 transaction {
     prepare(alice: &Account) {
-        log("Alice says foo")
+        let block = getCurrentBlock()
+        log("Alice says foo at height=".concat(block.height.toString()))
     }
 }

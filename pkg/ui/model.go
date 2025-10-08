@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/debug"
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -19,18 +20,18 @@ type Tab struct {
 type Model struct {
 	tabs           []Tab
 	activeTab      int
-	keys           KeyMap
+	logsTabIndex   int
+	blocksTabIndex int
+	logsView       *LogsView
+	blocksView     *BlocksView
 	help           help.Model
+	keys           KeyMap
 	showHelp       bool
 	width          int
 	height         int
 	ready          bool
-	logsView       *LogsView
-	blocksView     *BlocksView
-	logsTabIndex   int
-	blocksTabIndex int
+	helpHeight     int
 }
-
 // NewModel creates a new application model with default tabs.
 func NewModel(store *aether.Store) Model {
 	tabs := []Tab{
@@ -87,15 +88,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.Width = msg.Width
 		m.ready = true
 
-		// Update logs view with new dimensions
+		headerHeight := 3
+		footerHeight := 3
+		if m.showHelp {
+			footerHeight = lipgloss.Height(m.help.View(m.keys))
+		}
+		contentHeight := m.height - headerHeight - footerHeight
+
+		// Update both views with new dimensions
 		if m.logsView != nil {
-			headerHeight := 3
-			footerHeight := 3
-			if m.showHelp {
-				footerHeight = lipgloss.Height(m.help.View(m.keys))
-			}
-			contentHeight := m.height - headerHeight - footerHeight
 			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
+			cmds = append(cmds, cmd)
+		}
+		if m.blocksView != nil {
+			cmd = m.blocksView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
@@ -110,15 +116,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Help):
 			m.showHelp = !m.showHelp
+			if m.showHelp {
+				m.helpHeight = lipgloss.Height(m.help.View(m.keys))
+			}
 			return m, nil
 
 		case key.Matches(msg, m.keys.NextTab):
+			debug.Logger.Info().Int("currentTab", m.activeTab).Msg("NextTab pressed")
 			m.activeTab = (m.activeTab + 1) % len(m.tabs)
-			return m, nil
+			debug.Logger.Info().Int("newTab", m.activeTab).Str("tabName", m.tabs[m.activeTab].Name).Msg("Switched to tab")
+			// Don't return early - let the view update below
 
 		case key.Matches(msg, m.keys.PrevTab):
+			debug.Logger.Info().Int("currentTab", m.activeTab).Msg("PrevTab pressed")
 			m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
-			return m, nil
+			debug.Logger.Info().Int("newTab", m.activeTab).Str("tabName", m.tabs[m.activeTab].Name).Msg("Switched to tab")
+			// Don't return early - let the view update below
 		}
 	}
 
@@ -130,15 +143,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	contentHeight := m.height - headerHeight - footerHeight
 
+	// Update active view
 	if m.activeTab == m.logsTabIndex && m.logsView != nil {
+		debug.Logger.Info().Msg("Updating logs view")
 		cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
+		debug.Logger.Info().Msg("Logs view updated")
 	} else if m.activeTab == m.blocksTabIndex && m.blocksView != nil {
+		debug.Logger.Info().Msg("Updating blocks view")
 		cmd = m.blocksView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
+		debug.Logger.Info().Msg("Blocks view updated")
 	}
 
-	return m, tea.Batch(cmds...)
+	// Filter out nil commands
+	var validCmds []tea.Cmd
+	for _, c := range cmds {
+		if c != nil {
+			validCmds = append(validCmds, c)
+		}
+	}
+	
+	debug.Logger.Info().Int("cmdCount", len(validCmds)).Msg("Model.Update returning")
+	if len(validCmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(validCmds...)
 }
 
 // View renders the UI.
@@ -151,7 +181,7 @@ func (m Model) View() string {
 	headerHeight := 3
 	footerHeight := 3
 	if m.showHelp {
-		footerHeight = lipgloss.Height(m.help.View(m.keys))
+		footerHeight = m.helpHeight
 	}
 	contentHeight := m.height - headerHeight - footerHeight
 
