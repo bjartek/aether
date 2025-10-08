@@ -707,10 +707,7 @@ func (tv *TransactionsView) renderTransactionDetail(tx TransactionData, width, h
 	detailStyle := lipgloss.NewStyle().
 		Width(width).
 		Height(height).
-		Padding(1).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(borderColor).
-		BorderLeft(true)
+		Padding(1)
 
 	// Render a condensed version that fits in the available height
 	content := tv.renderTransactionDetailCondensed(tx, height-2) // -2 for padding

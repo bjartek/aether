@@ -61,11 +61,7 @@ var (
 
 	// Content styles
 	contentStyle = lipgloss.NewStyle().
-			Padding(1, 2).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(borderColor).
-			BorderLeft(true).
-			BorderRight(true)
+			Padding(1, 2)
 
 	// Footer styles
 	footerStyle = lipgloss.NewStyle().

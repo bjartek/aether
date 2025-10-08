@@ -94,11 +94,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Always forward log messages to the logs view, regardless of active tab
 		if m.logsView != nil {
 			headerHeight := 3
-			footerHeight := 3
-			if m.showHelp {
-				footerHeight = lipgloss.Height(m.help.View(m.keys))
-			}
-			contentHeight := m.height - headerHeight - footerHeight
+			contentHeight := m.height - headerHeight
 			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
 		}
@@ -111,11 +107,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 
 		headerHeight := 3
-		footerHeight := 3
-		if m.showHelp {
-			footerHeight = lipgloss.Height(m.help.View(m.keys))
-		}
-		contentHeight := m.height - headerHeight - footerHeight
+		contentHeight := m.height - headerHeight
 
 		// Update all views with new dimensions
 		if m.dashboardView != nil {
@@ -157,11 +149,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Update the appropriate view based on active tab
 	headerHeight := 3
-	footerHeight := 3
-	if m.showHelp {
-		footerHeight = lipgloss.Height(m.help.View(m.keys))
-	}
-	contentHeight := m.height - headerHeight - footerHeight
+	contentHeight := m.height - headerHeight
 
 	// Update active view
 	if m.activeTab == m.dashboardTabIndex && m.dashboardView != nil {
@@ -195,27 +183,21 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
-	// Calculate available space for content
+	// Calculate available space for content (no footer)
 	headerHeight := 3
-	footerHeight := 3
-	if m.showHelp {
-		footerHeight = m.helpHeight
-	}
-	contentHeight := m.height - headerHeight - footerHeight
+	contentHeight := m.height - headerHeight
 
 	header := m.renderHeader()
 	content := m.renderContent(contentHeight)
-	footer := m.renderFooter()
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
 		content,
-		footer,
 	)
 }
 
-// renderHeader renders the header with tab navigation.
+// renderHeader renders the header with tab navigation and hints.
 func (m Model) renderHeader() string {
 	var tabs []string
 	for i, tab := range m.tabs {
@@ -227,7 +209,21 @@ func (m Model) renderHeader() string {
 	}
 
 	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
-	header := headerStyle.Width(m.width).Render(tabBar)
+	
+	// Add tab-specific help hints
+	hints := ""
+	if m.activeTab == m.transactionsTabIndex {
+		hints = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render(" • j/k: navigate • enter/d: detail • e: events • a: addresses • g/G: top/bottom")
+	} else if m.activeTab == m.logsTabIndex {
+		hints = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render(" • j/k: scroll • g/G: top/bottom • ctrl+u/d: page")
+	}
+	
+	headerContent := tabBar + hints
+	header := headerStyle.Width(m.width).Render(headerContent)
 
 	return header
 }
