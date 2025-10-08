@@ -276,7 +276,7 @@ func (m Model) renderFooter() string {
 	if m.activeTab == m.transactionsTabIndex {
 		tabHints = lipgloss.NewStyle().
 			Foreground(mutedColor).
-			Render("  [j/k: navigate • enter/d: toggle detail • e: toggle event fields • g/G: top/bottom]")
+			Render("  [j/k: navigate • enter/d: toggle detail • e: event fields • a: raw addresses • g/G: top/bottom]")
 	} else if m.activeTab == m.logsTabIndex {
 		tabHints = lipgloss.NewStyle().
 			Foreground(mutedColor).

@@ -16,6 +16,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// ArgumentData holds argument name and value for display
+type ArgumentData struct {
+	Name  string
+	Value string
+}
+
 // TransactionData holds transaction information for display
 type TransactionData struct {
 	ID          string
@@ -27,7 +33,7 @@ type TransactionData struct {
 	Payer       string
 	GasLimit    uint64
 	Script      string
-	Arguments   string
+	Arguments   []ArgumentData
 	Events      []overflow.OverflowEvent
 	Error       string
 	Timestamp   time.Time
@@ -41,12 +47,13 @@ type TransactionMsg struct {
 
 // TransactionsKeyMap defines keybindings for the transactions view
 type TransactionsKeyMap struct {
-	LineUp           key.Binding
-	LineDown         key.Binding
-	GotoTop          key.Binding
-	GotoEnd          key.Binding
-	ToggleFullDetail key.Binding
+	LineUp            key.Binding
+	LineDown          key.Binding
+	GotoTop           key.Binding
+	GotoEnd           key.Binding
+	ToggleFullDetail  key.Binding
 	ToggleEventFields key.Binding
+	ToggleRawAddresses key.Binding
 }
 
 // DefaultTransactionsKeyMap returns the default keybindings for transactions view
@@ -76,6 +83,10 @@ func DefaultTransactionsKeyMap() TransactionsKeyMap {
 			key.WithKeys("e"),
 			key.WithHelp("e", "toggle event fields"),
 		),
+		ToggleRawAddresses: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "toggle raw addresses"),
+		),
 	}
 }
 
@@ -92,6 +103,7 @@ type TransactionsView struct {
 	height           int
 	fullDetailMode   bool // Toggle between split and full-screen detail view
 	showEventFields  bool // Toggle showing event field details
+	showRawAddresses bool // Toggle showing raw addresses vs friendly names
 	accountRegistry  *aether.AccountRegistry
 }
 
@@ -127,14 +139,15 @@ func NewTransactionsView() *TransactionsView {
 	vp.Style = lipgloss.NewStyle()
 	
 	return &TransactionsView{
-		table:           t,
-		detailViewport:  vp,
-		keys:            DefaultTransactionsKeyMap(),
-		ready:           false,
-		transactions:    make([]TransactionData, 0),
-		maxTxs:          1000, // Keep last 1000 transactions
-		fullDetailMode:  false,
-		showEventFields: true, // Show event fields by default
+		table:            t,
+		detailViewport:   vp,
+		keys:             DefaultTransactionsKeyMap(),
+		ready:            false,
+		transactions:     make([]TransactionData, 0),
+		maxTxs:           1000, // Keep last 1000 transactions
+		fullDetailMode:   false,
+		showEventFields:  true,  // Show event fields by default
+		showRawAddresses: false, // Show friendly names by default
 	}
 }
 
@@ -149,6 +162,84 @@ func truncateHex(s string, startLen, endLen int) string {
 		return s
 	}
 	return s[:startLen] + "..." + s[len(s)-endLen:]
+}
+
+// formatEventFieldValue formats an event field value for display
+func (tv *TransactionsView) formatEventFieldValue(val interface{}) string {
+	switch v := val.(type) {
+	case []uint8:
+		// Convert uint8 array to hex string if in human-friendly mode
+		if !tv.showRawAddresses && len(v) > 0 {
+			return "0x" + fmt.Sprintf("%x", v)
+		}
+		return fmt.Sprintf("%v", v)
+	case []interface{}:
+		// Check if it's an array of numbers (likely a byte array)
+		if len(v) > 0 && !tv.showRawAddresses {
+			// Try to convert to bytes
+			bytes := make([]byte, 0, len(v))
+			isBytes := true
+			for _, item := range v {
+				switch num := item.(type) {
+				case float64:
+					if num >= 0 && num <= 255 && num == float64(int(num)) {
+						bytes = append(bytes, byte(num))
+					} else {
+						isBytes = false
+					}
+				case int:
+					if num >= 0 && num <= 255 {
+						bytes = append(bytes, byte(num))
+					} else {
+						isBytes = false
+					}
+				default:
+					isBytes = false
+				}
+				if !isBytes {
+					break
+				}
+			}
+			if isBytes && len(bytes) > 0 {
+				return "0x" + fmt.Sprintf("%x", bytes)
+			}
+		}
+		return fmt.Sprintf("%v", v)
+	case map[string]interface{}:
+		// Handle maps - format as key: value pairs with sorted keys
+		if len(v) == 0 {
+			return "{}"
+		}
+		// Sort keys for consistent ordering
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		
+		var parts []string
+		for _, k := range keys {
+			// Recursively format map values
+			formattedVal := tv.formatEventFieldValue(v[k])
+			parts = append(parts, fmt.Sprintf("%s: %s", k, formattedVal))
+		}
+		return "{" + strings.Join(parts, ", ") + "}"
+	case string:
+		// Check if it's an address and format accordingly
+		if !tv.showRawAddresses && tv.accountRegistry != nil && strings.HasPrefix(v, "0x") && len(v) == 18 {
+			// For event fields, show only the friendly name
+			return tv.accountRegistry.GetName(v)
+		}
+		return v
+	default:
+		valStr := fmt.Sprintf("%v", v)
+		// Check if the string representation looks like an address
+		if !tv.showRawAddresses && tv.accountRegistry != nil && strings.HasPrefix(valStr, "0x") && len(valStr) == 18 {
+			// For event fields, show only the friendly name
+			return tv.accountRegistry.GetName(valStr)
+		}
+		return valStr
+	}
 }
 
 // AddTransaction adds a new transaction from an OverflowTransaction
@@ -195,17 +286,19 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 	// Store full script - user can scroll if needed
 	script := string(ot.Script)
 
-	// Format arguments
-	args := ""
-	if len(ot.Arguments) > 0 {
-		argStrs := make([]string, len(ot.Arguments))
-		for i, arg := range ot.Arguments {
-			argStrs[i] = fmt.Sprintf("%v", arg.Value)
+	// Format arguments as structured data
+	args := make([]ArgumentData, 0, len(ot.Arguments))
+	for i, arg := range ot.Arguments {
+		// Use the key field as the argument name, fallback to index if not available
+		name := arg.Key
+		if name == "" {
+			name = fmt.Sprintf("argument%d", i)
 		}
-		args = strings.Join(argStrs, ", ")
-		if len(args) > 200 {
-			args = args[:200] + "..."
+		argData := ArgumentData{
+			Name:  name,
+			Value: fmt.Sprintf("%v", arg.Value),
 		}
+		args = append(args, argData)
 	}
 
 	// Create error message
@@ -274,7 +367,10 @@ func (tv *TransactionsView) refreshTable() {
 		authDisplay := "N/A"
 		if len(tx.Authorizers) > 0 {
 			addr := tx.Authorizers[0]
-			if tv.accountRegistry != nil {
+			if tv.showRawAddresses {
+				// Always show truncated address
+				authDisplay = truncateHex(addr, 6, 4)
+			} else if tv.accountRegistry != nil {
 				name := tv.accountRegistry.GetName(addr)
 				if name != addr {
 					// Show friendly name
@@ -337,6 +433,17 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if key.Matches(msg, tv.keys.ToggleEventFields) {
 			tv.showEventFields = !tv.showEventFields
 			// Refresh viewport content
+			if tv.fullDetailMode {
+				tv.updateDetailViewport()
+			}
+			return nil
+		}
+		
+		// Handle toggle raw addresses
+		if key.Matches(msg, tv.keys.ToggleRawAddresses) {
+			tv.showRawAddresses = !tv.showRawAddresses
+			// Refresh table and viewport
+			tv.refreshTable()
 			if tv.fullDetailMode {
 				tv.updateDetailViewport()
 			}
@@ -437,24 +544,27 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 	details.WriteString(renderField("Index", fmt.Sprintf("%d", tx.Index)))
 	details.WriteString("\n")
 
-	// Format addresses with friendly names
+	// Format addresses with friendly names (unless raw mode is enabled)
 	proposerDisplay := tx.Proposer
-	if tv.accountRegistry != nil {
-		proposerDisplay = tv.accountRegistry.FormatAddress(tx.Proposer)
+	if !tv.showRawAddresses && tv.accountRegistry != nil {
+		// In details pane, show only the friendly name
+		proposerDisplay = tv.accountRegistry.GetName(tx.Proposer)
 	}
 	details.WriteString(renderFieldBlock("Proposer", proposerDisplay))
 	
 	payerDisplay := tx.Payer
-	if tv.accountRegistry != nil {
-		payerDisplay = tv.accountRegistry.FormatAddress(tx.Payer)
+	if !tv.showRawAddresses && tv.accountRegistry != nil {
+		// In details pane, show only the friendly name
+		payerDisplay = tv.accountRegistry.GetName(tx.Payer)
 	}
 	details.WriteString(renderFieldBlock("Payer", payerDisplay))
 	
 	// Handle multiple authorizers with friendly names
 	authDisplayList := make([]string, len(tx.Authorizers))
 	for i, auth := range tx.Authorizers {
-		if tv.accountRegistry != nil {
-			authDisplayList[i] = tv.accountRegistry.FormatAddress(auth)
+		if !tv.showRawAddresses && tv.accountRegistry != nil {
+			// In details pane, show only the friendly name
+			authDisplayList[i] = tv.accountRegistry.GetName(auth)
 		} else {
 			authDisplayList[i] = auth
 		}
@@ -497,18 +607,46 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 				for _, key := range keys {
 					val := event.Fields[key]
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
+					
+					// Format value using helper function
+					valStr := tv.formatEventFieldValue(val)
+					
 					details.WriteString(fmt.Sprintf("     %s -> %s\n", 
 						valueStyleDetail.Render(paddedKey),
-						valueStyleDetail.Render(fmt.Sprintf("%v", val))))
+						valueStyleDetail.Render(valStr)))
 				}
 			}
 		}
 		details.WriteString("\n")
 	}
 
-	if tx.Arguments != "" {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", "Arguments:")) + "\n")
-		details.WriteString(valueStyleDetail.Render(tx.Arguments) + "\n\n")
+	if len(tx.Arguments) > 0 {
+		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", fmt.Sprintf("Arguments (%d):", len(tx.Arguments)))) + "\n")
+		
+		// Find the longest argument name for alignment
+		maxNameLen := 0
+		for _, arg := range tx.Arguments {
+			if len(arg.Name) > maxNameLen {
+				maxNameLen = len(arg.Name)
+			}
+		}
+		
+		// Display arguments aligned on ->
+		for _, arg := range tx.Arguments {
+			paddedName := fmt.Sprintf("%-*s", maxNameLen, arg.Name)
+			
+			// Format value - check if it's an address and show friendly name
+			valStr := arg.Value
+			if !tv.showRawAddresses && tv.accountRegistry != nil && strings.HasPrefix(valStr, "0x") && len(valStr) == 18 {
+				// Looks like an address, show only the friendly name
+				valStr = tv.accountRegistry.GetName(valStr)
+			}
+			
+			details.WriteString(fmt.Sprintf("  %s -> %s\n", 
+				valueStyleDetail.Render(paddedName),
+				valueStyleDetail.Render(valStr)))
+		}
+		details.WriteString("\n")
 	}
 
 	if tx.Script != "" {
@@ -570,23 +708,26 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 	// Account info
 	if lineCount+6 < maxLines {
 		proposerDisplay := tx.Proposer
-		if tv.accountRegistry != nil {
-			proposerDisplay = tv.accountRegistry.FormatAddress(tx.Proposer)
+		if !tv.showRawAddresses && tv.accountRegistry != nil {
+			// In condensed view, show only the friendly name
+			proposerDisplay = tv.accountRegistry.GetName(tx.Proposer)
 		}
 		details.WriteString(renderFieldBlock("Proposer", proposerDisplay))
 		lineCount += 2
 		
 		payerDisplay := tx.Payer
-		if tv.accountRegistry != nil {
-			payerDisplay = tv.accountRegistry.FormatAddress(tx.Payer)
+		if !tv.showRawAddresses && tv.accountRegistry != nil {
+			// In condensed view, show only the friendly name
+			payerDisplay = tv.accountRegistry.GetName(tx.Payer)
 		}
 		details.WriteString(renderFieldBlock("Payer", payerDisplay))
 		lineCount += 2
 		
 		authDisplayList := make([]string, len(tx.Authorizers))
 		for i, auth := range tx.Authorizers {
-			if tv.accountRegistry != nil {
-				authDisplayList[i] = tv.accountRegistry.FormatAddress(auth)
+			if !tv.showRawAddresses && tv.accountRegistry != nil {
+				// In condensed view, show only the friendly name
+				authDisplayList[i] = tv.accountRegistry.GetName(auth)
 			} else {
 				authDisplayList[i] = auth
 			}
@@ -645,9 +786,13 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 					}
 					val := event.Fields[key]
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
+					
+					// Format value using helper function
+					valStr := tv.formatEventFieldValue(val)
+					
 					details.WriteString(fmt.Sprintf("     %s -> %s\n", 
 						valueStyleDetail.Render(paddedKey),
-						valueStyleDetail.Render(fmt.Sprintf("%v", val))))
+						valueStyleDetail.Render(valStr)))
 					lineCount++
 				}
 			}
