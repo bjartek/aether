@@ -23,9 +23,11 @@ type Model struct {
 	activeTab           int
 	dashboardTabIndex   int
 	transactionsTabIndex int
+	eventsTabIndex      int
 	logsTabIndex        int
 	dashboardView       *DashboardView
 	transactionsView    *TransactionsView
+	eventsView          *EventsView
 	logsView            *LogsView
 	help                help.Model
 	keys                KeyMap
@@ -40,6 +42,7 @@ func NewModel() Model {
 	tabs := []Tab{
 		{Name: "Dashboard", Content: ""},      // Content will be rendered by DashboardView
 		{Name: "Transactions", Content: ""},   // Content will be rendered by TransactionsView
+		{Name: "Events", Content: ""},         // Content will be rendered by EventsView
 		{Name: "Logs", Content: ""},           // Content will be rendered by LogsView
 	}
 
@@ -51,10 +54,12 @@ func NewModel() Model {
 		showHelp:            false,
 		dashboardView:       NewDashboardView(),
 		transactionsView:    NewTransactionsView(),
+		eventsView:          NewEventsView(),
 		logsView:            NewLogsView(),
 		dashboardTabIndex:   0, // Index of the Dashboard tab
 		transactionsTabIndex: 1, // Index of the Transactions tab
-		logsTabIndex:        2, // Index of the Logs tab
+		eventsTabIndex:      2, // Index of the Events tab
+		logsTabIndex:        3, // Index of the Logs tab
 	}
 }
 
@@ -66,6 +71,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.transactionsView != nil {
 		cmds = append(cmds, m.transactionsView.Init())
+	}
+	if m.eventsView != nil {
+		cmds = append(cmds, m.eventsView.Init())
 	}
 	if m.logsView != nil {
 		cmds = append(cmds, m.logsView.Init())
@@ -88,6 +96,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				msg.Transaction,
 				msg.AccountRegistry,
 			)
+		}
+		
+		// Forward events from transaction to events view
+		if m.eventsView != nil && len(msg.Transaction.Events) > 0 {
+			for eventIndex, event := range msg.Transaction.Events {
+				m.eventsView.AddEvent(
+					msg.BlockHeight,
+					msg.BlockID,
+					msg.Transaction.Id,
+					msg.Transaction.TransactionIndex,
+					event,
+					eventIndex,
+					msg.AccountRegistry,
+				)
+			}
 		}
 		return m, nil
 	
@@ -120,6 +143,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.transactionsView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
 		}
+		if m.eventsView != nil {
+			cmd = m.eventsView.Update(msg, m.width-4, contentHeight-2)
+			cmds = append(cmds, cmd)
+		}
 		if m.logsView != nil {
 			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
@@ -150,6 +177,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmd = m.transactionsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
 				cmds = append(cmds, cmd)
 			}
+			if m.eventsView != nil {
+				cmd = m.eventsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
+				cmds = append(cmds, cmd)
+			}
 			if m.logsView != nil {
 				cmd = m.logsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
 				cmds = append(cmds, cmd)
@@ -175,6 +206,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
 		cmd = m.transactionsView.Update(msg, m.width-4, contentHeight-2)
+		cmds = append(cmds, cmd)
+	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
+		cmd = m.eventsView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
 	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
 		cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
@@ -296,6 +330,9 @@ func (m Model) renderContent(height int) string {
 	} else if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
 		// Render transactions tab
 		viewContent = m.transactionsView.View()
+	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
+		// Render events tab
+		viewContent = m.eventsView.View()
 	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
 		// Render logs tab
 		viewContent = m.logsView.View()
@@ -372,6 +409,12 @@ func (m Model) getHelpText() string {
 		helpItems = append(helpItems, "j/k: navigate")
 		helpItems = append(helpItems, "enter/d: detail")
 		helpItems = append(helpItems, "e: events")
+		helpItems = append(helpItems, "a: addresses")
+		helpItems = append(helpItems, "g/G: top/bottom")
+	} else if m.activeTab == m.eventsTabIndex {
+		helpItems = append(helpItems, "/: filter")
+		helpItems = append(helpItems, "j/k: navigate")
+		helpItems = append(helpItems, "enter/d: detail")
 		helpItems = append(helpItems, "a: addresses")
 		helpItems = append(helpItems, "g/G: top/bottom")
 	} else if m.activeTab == m.logsTabIndex {

@@ -2,7 +2,11 @@
 
 Elevate you flow cli dev experience
 
-see cast <https://asciinema.org/a/rXpJIbBdELLwfQAy7Y6JZidiS> for a quick demo
+see casts
+
+- iteration 1: https://asciinema.org/a/rXpJIbBdELLwfQAy7Y6JZidiS
+- iteration 2: http://asciinema.org/a/zwDZZTHTwiu50MucxAc3vVR3h  help
+- iteration 3: https://asciinema.org/a/0BeMtZblr0kEbQ8iLz0ZQoIMY events
 
 ## How to
 
@@ -48,16 +52,19 @@ run `make` to build the binary start it and run it in the example folder
 - starts the aether TUI
   - shows transactions in a table
   - shows transaction details in an inspector
+  - shows events in a table
+  - shows event details in an inspector
   - shows log from emulator and dev-wallet and aether
   - shows a dashboard
   - filter transactions
+  - filter events
   - filter logs
 
 ## Planned features
 
 - [ ] run transactions/script
-- [ ] show events 
-- [ ] filter events
+- [x] show events 
+- [x] filter events
 - [ ] show accounts
 - [x] show better help system
 - [ ] evm support
