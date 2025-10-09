@@ -653,11 +653,14 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			// Otherwise navigate table
 			var cmd tea.Cmd
 			rv.table, cmd = rv.table.Update(msg)
-			// Update input fields for selected script
+			// Update input fields for selected script and clear previous results
 			selectedIdx := rv.table.Cursor()
 			if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 				rv.setupInputFields(rv.scripts[selectedIdx])
 				rv.updateCodeViewport(rv.scripts[selectedIdx])
+				// Clear previous execution results when switching scripts
+				rv.executionResult = ""
+				rv.executionError = nil
 			}
 			rv.mu.Unlock()
 			return cmd
@@ -672,11 +675,14 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			// Otherwise navigate table
 			var cmd tea.Cmd
 			rv.table, cmd = rv.table.Update(msg)
-			// Update input fields for selected script
+			// Update input fields for selected script and clear previous results
 			selectedIdx := rv.table.Cursor()
 			if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 				rv.setupInputFields(rv.scripts[selectedIdx])
 				rv.updateCodeViewport(rv.scripts[selectedIdx])
+				// Clear previous execution results when switching scripts
+				rv.executionResult = ""
+				rv.executionError = nil
 			}
 			rv.mu.Unlock()
 			return cmd
