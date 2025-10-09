@@ -10,8 +10,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// TODO: add logger
-func RunInitTransactions(o *overflow.OverflowState, validPath string, logger *zerolog.Logger) error {
+// RunInitTransactions runs initialization transactions from both .cdc and .json files
+// cdcOverflow is used for .cdc files, jsonOverflow is used for .json config files
+func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *overflow.OverflowState, validPath string, logger *zerolog.Logger) error {
 	err := filepath.Walk(validPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -22,12 +23,55 @@ func RunInitTransactions(o *overflow.OverflowState, validPath string, logger *ze
 			return nil
 		}
 
-		fileName := strings.TrimSuffix(info.Name(), ".cdc")
-		res := o.Tx(fileName, overflow.WithAutoSigner())
-		if res.Err != nil {
-			return res.Err
+		ext := filepath.Ext(info.Name())
+		
+		// Handle .json configuration files
+		if ext == ".json" {
+			config, err := LoadTransactionConfig(path)
+			if err != nil {
+				logger.Error().Err(err).Str("file", info.Name()).Msg("Failed to load transaction config")
+				return err
+			}
+
+			// Build overflow options from config
+			var opts []overflow.OverflowInteractionOption
+			
+			// Add signers - first signer uses WithSigner, rest use WithPayloadSigner
+			for i, signer := range config.Signers {
+				if i == 0 {
+					opts = append(opts, overflow.WithSigner(signer))
+				} else {
+					opts = append(opts, overflow.WithPayloadSigner(signer))
+				}
+			}
+			
+			// Add arguments
+			for argName, argValue := range config.Arguments {
+				opts = append(opts, overflow.WithArg(argName, argValue))
+			}
+
+			// Execute transaction using jsonOverflow state
+			res := jsonOverflow.Tx(config.Name, opts...)
+			if res.Err != nil {
+				logger.Error().Err(res.Err).Str("config", info.Name()).Str("transaction", config.Name).Msg("Failed to run transaction from config")
+				return res.Err
+			}
+			
+			logger.Info().Str("config", info.Name()).Str("transaction", config.Name).Msgf("%v Ran init transaction from config", emoji.Scroll)
+			return nil
 		}
-		logger.Info().Str("file", fileName).Msgf("%v Ran init transaction", emoji.Scroll)
+		
+		// Handle .cdc files (original behavior)
+		if ext == ".cdc" {
+			fileName := strings.TrimSuffix(info.Name(), ".cdc")
+			res := cdcOverflow.Tx(fileName, overflow.WithAutoSigner())
+			if res.Err != nil {
+				return res.Err
+			}
+			logger.Info().Str("file", fileName).Msgf("%v Ran init transaction", emoji.Scroll)
+			return nil
+		}
+
 		return nil
 	})
 	return err

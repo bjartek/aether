@@ -1,0 +1,9 @@
+{
+  "name": "message",
+  "signers": [
+    "bob"
+  ],
+  "arguments": {
+    "message": "hellu"
+  }
+}

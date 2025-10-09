@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -50,8 +51,10 @@ type ScriptFile struct {
 	Path       string
 	Type       ScriptType
 	Parameters []Parameter
-	Signers    int // Number of signers needed for transactions
+	Signers    int    // Number of signers needed for transactions
 	Code       string
+	Config     *flow.TransactionConfig // Pre-populated config from JSON (if loaded from .json file)
+	IsFromJSON bool                    // True if this was loaded from a JSON config file
 }
 
 // InputField represents a form input field
@@ -70,6 +73,7 @@ type RunnerKeyMap struct {
 	Run       key.Binding
 	NextField key.Binding
 	PrevField key.Binding
+	Save      key.Binding
 }
 
 // DefaultRunnerKeyMap returns the default keybindings for runner view
@@ -99,6 +103,10 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 			key.WithKeys("ctrl+p"),
 			key.WithHelp("ctrl+p", "prev field"),
 		),
+		Save: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "save config"),
+		),
 	}
 }
 
@@ -122,6 +130,9 @@ type RunnerView struct {
 	isExecuting      bool
 	executionResult  string
 	executionError   error
+	savingConfig     bool             // True when showing save dialog
+	saveInput        textinput.Model  // Input for save filename
+	saveError        string           // Error message from last save attempt
 }
 
 // NewRunnerView creates a new runner view
@@ -158,6 +169,12 @@ func NewRunnerView() *RunnerView {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
+	// Create save input
+	saveInput := textinput.New()
+	saveInput.Placeholder = "config-name"
+	saveInput.CharLimit = 50
+	saveInput.Width = 40
+
 	rv := &RunnerView{
 		table:            t,
 		codeViewport:     vp,
@@ -169,12 +186,35 @@ func NewRunnerView() *RunnerView {
 		editingField:     false,
 		spinner:          sp,
 		isExecuting:      false,
+		savingConfig:     false,
+		saveInput:        saveInput,
 	}
 
 	// Scan for scripts and transactions
 	rv.scanFiles()
 
 	return rv
+}
+
+// findCdcFile searches for a .cdc file by name in common directories
+func (rv *RunnerView) findCdcFile(name string, scriptType ScriptType) string {
+	// Determine which directory to search based on script type
+	var dirs []string
+	if scriptType == TypeScript {
+		dirs = []string{"scripts", "cadence/scripts"}
+	} else {
+		dirs = []string{"transactions", "cadence/transactions"}
+	}
+
+	filename := name + ".cdc"
+	for _, dir := range dirs {
+		path := filepath.Join(dir, filename)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	return ""
 }
 
 // scanFiles scans for .cdc files in scripts and transactions folders
@@ -204,31 +244,72 @@ func (rv *RunnerView) scanFiles() {
 			if info.IsDir() {
 				return nil
 			}
-			if filepath.Ext(path) != ".cdc" {
+
+			ext := filepath.Ext(path)
+			
+			// Handle JSON configuration files
+			if ext == ".json" {
+				config, err := flow.LoadTransactionConfig(path)
+				if err != nil {
+					// Skip malformed JSON files
+					return nil
+				}
+
+				// Find the referenced .cdc file
+				cdcPath := rv.findCdcFile(config.Name, sp.typ)
+				if cdcPath == "" {
+					// Referenced .cdc file not found, skip
+					return nil
+				}
+
+				code, err := os.ReadFile(cdcPath)
+				if err != nil {
+					return nil
+				}
+
+				script := ScriptFile{
+					Name:       strings.TrimSuffix(filepath.Base(path), ".json") + " (config)",
+					Path:       path,
+					Type:       sp.typ,
+					Code:       string(code),
+					Config:     config,
+					IsFromJSON: true,
+				}
+
+				// Parse parameters and signers from the .cdc file
+				rv.parseScriptFile(&script)
+
+				files = append(files, script)
 				return nil
 			}
 
-			// Skip test files
-			if strings.Contains(path, "_test.cdc") {
+			// Handle .cdc files
+			if ext == ".cdc" {
+				// Skip test files
+				if strings.Contains(path, "_test.cdc") {
+					return nil
+				}
+
+				code, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+
+				script := ScriptFile{
+					Name:       strings.TrimSuffix(filepath.Base(path), ".cdc"),
+					Path:       path,
+					Type:       sp.typ,
+					Code:       string(code),
+					IsFromJSON: false,
+				}
+
+				// Parse parameters and signers
+				rv.parseScriptFile(&script)
+
+				files = append(files, script)
 				return nil
 			}
 
-			code, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-
-			script := ScriptFile{
-				Name: strings.TrimSuffix(filepath.Base(path), ".cdc"),
-				Path: path,
-				Type: sp.typ,
-				Code: string(code),
-			}
-
-			// Parse parameters and signers
-			rv.parseScriptFile(&script)
-
-			files = append(files, script)
 			return nil
 		})
 
@@ -337,6 +418,13 @@ func (rv *RunnerView) setupInputFields(script ScriptFile) {
 		ti.CharLimit = 200
 		ti.Width = 40
 
+		// Pre-populate from JSON config if available
+		if script.Config != nil && script.Config.Arguments != nil {
+			if val, ok := script.Config.Arguments[param.Name]; ok {
+				ti.SetValue(val)
+			}
+		}
+
 		field := InputField{
 			Label:    param.Name,
 			TypeHint: param.Type,
@@ -353,6 +441,11 @@ func (rv *RunnerView) setupInputFields(script ScriptFile) {
 			ti.Placeholder = "Select signer (use friendly name)"
 			ti.CharLimit = 50
 			ti.Width = 40
+
+			// Pre-populate from JSON config if available
+			if script.Config != nil && script.Config.Signers != nil && i < len(script.Config.Signers) {
+				ti.SetValue(script.Config.Signers[i])
+			}
 
 			field := InputField{
 				Label:    fmt.Sprintf("Signer %d", i+1),
@@ -413,6 +506,7 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 	var opts []overflow.OverflowInteractionOption
 
 	// Collect signers and arguments
+	signerIndex := 0
 	for _, field := range rv.inputFields {
 		value := field.Input.Value()
 		if value == "" {
@@ -420,7 +514,13 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 		}
 
 		if field.IsSigner {
-			opts = append(opts, overflow.WithSigner(value))
+			// First signer uses WithSigner, rest use WithPayloadSigner
+			if signerIndex == 0 {
+				opts = append(opts, overflow.WithSigner(value))
+			} else {
+				opts = append(opts, overflow.WithPayloadSigner(value))
+			}
+			signerIndex++
 		} else {
 			opts = append(opts, overflow.WithArg(field.Label, value))
 		}
@@ -449,6 +549,11 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 		// Execute based on script type
 		// Overflow expects script name without .cdc extension
 		scriptName := script.Name
+		
+		// If this is from a JSON config, use the config's referenced name
+		if script.IsFromJSON && script.Config != nil {
+			scriptName = script.Config.Name
+		}
 
 		if script.Type == TypeTransaction {
 			txResult := o.Tx(scriptName, opts...)
@@ -513,6 +618,61 @@ func (rv *RunnerView) formatTransactionResult(result *overflow.OverflowResult) s
 	return b.String()
 }
 
+// saveCurrentConfig saves the current input values to a JSON config file
+func (rv *RunnerView) saveCurrentConfig(filename string, script ScriptFile) error {
+	// Build config from current input fields
+	config := &flow.TransactionConfig{
+		Name:      script.Name,
+		Signers:   make([]string, 0),
+		Arguments: make(map[string]string),
+	}
+
+	// Collect values from input fields
+	for _, field := range rv.inputFields {
+		value := field.Input.Value()
+		if value == "" {
+			continue // Skip empty fields
+		}
+
+		if field.IsSigner {
+			config.Signers = append(config.Signers, value)
+		} else {
+			config.Arguments[field.Label] = value
+		}
+	}
+
+	// If this script was loaded from JSON, use the original name for the referenced .cdc file
+	if script.IsFromJSON && script.Config != nil {
+		config.Name = script.Config.Name
+	}
+
+	// Determine directory based on script type
+	var dir string
+	if script.Type == TypeScript {
+		// Try scripts first, fall back to cadence/scripts
+		if _, err := os.Stat("scripts"); err == nil {
+			dir = "scripts"
+		} else {
+			dir = "cadence/scripts"
+		}
+	} else {
+		// Try transactions first, fall back to cadence/transactions
+		if _, err := os.Stat("transactions"); err == nil {
+			dir = "transactions"
+		} else {
+			dir = "cadence/transactions"
+		}
+	}
+
+	// Ensure filename has .json extension
+	if !strings.HasSuffix(filename, ".json") {
+		filename += ".json"
+	}
+
+	path := filepath.Join(dir, filename)
+	return flow.SaveTransactionConfig(path, config)
+}
+
 // Update handles messages for the runner view
 func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 	rv.mu.Lock()
@@ -573,6 +733,61 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		rv.mu.Unlock()
 
 	case tea.KeyMsg:
+		// Handle save dialog if active
+		rv.mu.RLock()
+		isSaving := rv.savingConfig
+		rv.mu.RUnlock()
+
+		if isSaving {
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				// Cancel save
+				rv.mu.Lock()
+				rv.savingConfig = false
+				rv.saveInput.SetValue("")
+				rv.saveInput.Blur()
+				rv.saveError = ""
+				rv.mu.Unlock()
+				return nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				// Perform save
+				rv.mu.Lock()
+				filename := rv.saveInput.Value()
+				if filename == "" {
+					rv.saveError = "Filename cannot be empty"
+					rv.mu.Unlock()
+					return nil
+				}
+				
+				selectedIdx := rv.table.Cursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					script := rv.scripts[selectedIdx]
+					err := rv.saveCurrentConfig(filename, script)
+					if err != nil {
+						rv.saveError = err.Error()
+					} else {
+						rv.savingConfig = false
+						rv.saveInput.SetValue("")
+						rv.saveInput.Blur()
+						rv.saveError = ""
+						// Rescan to pick up the new file
+						rv.mu.Unlock()
+						rv.scanFiles()
+						return nil
+					}
+				}
+				rv.mu.Unlock()
+				return nil
+			default:
+				// Pass input to save textinput
+				rv.mu.Lock()
+				var cmd tea.Cmd
+				rv.saveInput, cmd = rv.saveInput.Update(msg)
+				rv.mu.Unlock()
+				return cmd
+			}
+		}
+
 		// If editing a field, pass input to textinput
 		rv.mu.RLock()
 		isEditing := rv.editingField
@@ -642,6 +857,15 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				return textinput.Blink
 			}
 			return nil
+
+		case key.Matches(msg, rv.keys.Save):
+			// Activate save dialog
+			rv.mu.Lock()
+			rv.savingConfig = true
+			rv.saveInput.Focus()
+			rv.saveError = ""
+			rv.mu.Unlock()
+			return textinput.Blink
 
 		case key.Matches(msg, rv.keys.Down), key.Matches(msg, rv.keys.NextField):
 			rv.mu.Lock()
@@ -773,10 +997,24 @@ func (rv *RunnerView) renderDetail(script ScriptFile, width, height int) string 
 
 	var content strings.Builder
 
-	// Title
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(primaryColor)
-	content.WriteString(titleStyle.Render(script.Name) + "\n")
-	content.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Render(string(script.Type)) + "\n\n")
+	// Show save dialog if active
+	if rv.savingConfig {
+		saveTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Save Configuration")
+		content.WriteString(saveTitle + "\n\n")
+		
+		content.WriteString("Enter filename (without .json extension):\n")
+		content.WriteString(rv.saveInput.View() + "\n\n")
+		
+		if rv.saveError != "" {
+			errorStyle := lipgloss.NewStyle().Foreground(errorColor)
+			content.WriteString(errorStyle.Render("Error: "+rv.saveError) + "\n\n")
+		}
+		
+		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
+		content.WriteString(hintStyle.Render("Press Enter to save, Esc to cancel") + "\n")
+		
+		return detailStyle.Render(content.String())
+	}
 
 	// Show spinner or execution result
 	if rv.isExecuting {
@@ -819,12 +1057,12 @@ func (rv *RunnerView) renderDetail(script ScriptFile, width, height int) string 
 		if rv.editingField {
 			content.WriteString(hintStyle.Render("Press Esc to stop editing, Enter to confirm") + "\n\n")
 		} else {
-			content.WriteString(hintStyle.Render("Press Enter to edit, j/k to navigate, r to run") + "\n\n")
+			content.WriteString(hintStyle.Render("Press Enter to edit, j/k to navigate, r to run, s to save") + "\n\n")
 		}
 	} else {
 		// No parameters - show hint to run directly
 		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
-		content.WriteString(hintStyle.Render("No parameters required. Press r to run") + "\n\n")
+		content.WriteString(hintStyle.Render("No parameters required. Press r to run, s to save") + "\n\n")
 	}
 
 	// Code section

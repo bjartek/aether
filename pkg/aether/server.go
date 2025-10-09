@@ -164,7 +164,9 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 	}
 	a.Logger.Info().Dict("accounts", zerolog.Dict().Fields(accounts)).Msgf("%v Added accounts to FCL", emoji.Person)
 
-	err = flow.RunInitTransactions(o, validPath, a.Logger)
+	// Use same overflow state for both .cdc and .json files
+	// Both point to same state since JSON configs reference the same transaction files
+	err = flow.RunInitTransactions(o, oR, validPath, a.Logger)
 	if err != nil {
 		return err
 	}
