@@ -804,12 +804,16 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				return nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				rv.mu.Lock()
-				rv.editingField = false
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
-				// Move to next field
+				// Move to next field and auto-focus it
 				if rv.activeFieldIndex < len(rv.inputFields)-1 {
 					rv.activeFieldIndex++
+					rv.inputFields[rv.activeFieldIndex].Input.Focus()
+					rv.mu.Unlock()
+					return textinput.Blink
 				}
+				// Last field - exit editing mode
+				rv.editingField = false
 				rv.mu.Unlock()
 				return nil
 			default:
