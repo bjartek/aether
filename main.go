@@ -80,8 +80,8 @@ func main() {
 			emulatorLogger.Info().Msg("Emulator stopped")
 		}()
 		
-		// Wait a moment for emulator to start listening
-		time.Sleep(500 * time.Millisecond)
+		// Wait for emulator to start listening
+		time.Sleep(1 * time.Second)
 		emulatorLogger.Info().Msg("Emulator is ready")
 		close(emulatorReady)
 	}()

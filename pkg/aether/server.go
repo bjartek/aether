@@ -30,6 +30,12 @@ type BlockTransactionMsg struct {
 	AccountRegistry *AccountRegistry
 }
 
+// OverflowReadyMsg is sent when overflow is initialized and ready
+type OverflowReadyMsg struct {
+	Overflow        *overflow.OverflowState
+	AccountRegistry *AccountRegistry
+}
+
 func (a *Aether) Start(teaProgram *tea.Program) error {
 	ctx := context.Background()
 
@@ -69,6 +75,14 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		Int("accounts", len(a.AccountRegistry.addressToName)).
 		Interface("registry", dump).
 		Msg("Initialized account registry")
+
+	// Send overflow ready message to UI
+	if teaProgram != nil {
+		teaProgram.Send(OverflowReadyMsg{
+			Overflow:        o,
+			AccountRegistry: a.AccountRegistry,
+		})
+	}
 
 	overflowChannel := make(chan flow.BlockResult)
 

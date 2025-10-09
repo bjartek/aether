@@ -5,6 +5,7 @@ import (
 
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/logs"
+	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,10 +25,12 @@ type Model struct {
 	dashboardTabIndex   int
 	transactionsTabIndex int
 	eventsTabIndex      int
+	runnerTabIndex      int
 	logsTabIndex        int
 	dashboardView       *DashboardView
 	transactionsView    *TransactionsView
 	eventsView          *EventsView
+	runnerView          *RunnerView
 	logsView            *LogsView
 	help                help.Model
 	keys                KeyMap
@@ -43,6 +46,7 @@ func NewModel() Model {
 		{Name: "Dashboard", Content: ""},      // Content will be rendered by DashboardView
 		{Name: "Transactions", Content: ""},   // Content will be rendered by TransactionsView
 		{Name: "Events", Content: ""},         // Content will be rendered by EventsView
+		{Name: "Runner", Content: ""},         // Content will be rendered by RunnerView
 		{Name: "Logs", Content: ""},           // Content will be rendered by LogsView
 	}
 
@@ -55,11 +59,13 @@ func NewModel() Model {
 		dashboardView:       NewDashboardView(),
 		transactionsView:    NewTransactionsView(),
 		eventsView:          NewEventsView(),
+		runnerView:          NewRunnerView(),
 		logsView:            NewLogsView(),
 		dashboardTabIndex:   0, // Index of the Dashboard tab
 		transactionsTabIndex: 1, // Index of the Transactions tab
 		eventsTabIndex:      2, // Index of the Events tab
-		logsTabIndex:        3, // Index of the Logs tab
+		runnerTabIndex:      3, // Index of the Runner tab
+		logsTabIndex:        4, // Index of the Logs tab
 	}
 }
 
@@ -75,10 +81,27 @@ func (m Model) Init() tea.Cmd {
 	if m.eventsView != nil {
 		cmds = append(cmds, m.eventsView.Init())
 	}
+	if m.runnerView != nil {
+		cmds = append(cmds, m.runnerView.Init())
+	}
 	if m.logsView != nil {
 		cmds = append(cmds, m.logsView.Init())
 	}
 	return tea.Batch(cmds...)
+}
+
+// SetOverflow sets the overflow instance for the runner view
+func (m *Model) SetOverflow(o *overflow.OverflowState) {
+	if m.runnerView != nil {
+		m.runnerView.SetOverflow(o)
+	}
+}
+
+// SetAccountRegistry sets the account registry for views that need it
+func (m *Model) SetAccountRegistry(registry *aether.AccountRegistry) {
+	if m.runnerView != nil {
+		m.runnerView.SetAccountRegistry(registry)
+	}
 }
 
 // Update handles messages and updates the model.
@@ -87,6 +110,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case aether.OverflowReadyMsg:
+		// Set overflow and account registry in runner view
+		m.SetOverflow(msg.Overflow)
+		m.SetAccountRegistry(msg.AccountRegistry)
+		return m, nil
+
 	case aether.BlockTransactionMsg:
 		// Forward transaction messages to the transactions view
 		if m.transactionsView != nil {
@@ -147,6 +176,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.eventsView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
 		}
+		if m.runnerView != nil {
+			cmd = m.runnerView.Update(msg, m.width-4, contentHeight-2)
+			cmds = append(cmds, cmd)
+		}
 		if m.logsView != nil {
 			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
@@ -181,6 +214,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmd = m.eventsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
 				cmds = append(cmds, cmd)
 			}
+			if m.runnerView != nil {
+				cmd = m.runnerView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
+				cmds = append(cmds, cmd)
+			}
 			if m.logsView != nil {
 				cmd = m.logsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
 				cmds = append(cmds, cmd)
@@ -209,6 +246,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
 		cmd = m.eventsView.Update(msg, m.width-4, contentHeight-2)
+		cmds = append(cmds, cmd)
+	} else if m.activeTab == m.runnerTabIndex && m.runnerView != nil {
+		cmd = m.runnerView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
 	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
 		cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
@@ -333,6 +373,9 @@ func (m Model) renderContent(height int) string {
 	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
 		// Render events tab
 		viewContent = m.eventsView.View()
+	} else if m.activeTab == m.runnerTabIndex && m.runnerView != nil {
+		// Render runner tab
+		viewContent = m.runnerView.View()
 	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
 		// Render logs tab
 		viewContent = m.logsView.View()
@@ -417,6 +460,11 @@ func (m Model) getHelpText() string {
 		helpItems = append(helpItems, "enter/d: detail")
 		helpItems = append(helpItems, "a: addresses")
 		helpItems = append(helpItems, "g/G: top/bottom")
+	} else if m.activeTab == m.runnerTabIndex {
+		helpItems = append(helpItems, "j/k: navigate")
+		helpItems = append(helpItems, "enter: edit field")
+		helpItems = append(helpItems, "esc: stop editing")
+		helpItems = append(helpItems, "r: run")
 	} else if m.activeTab == m.logsTabIndex {
 		helpItems = append(helpItems, "/: filter")
 		helpItems = append(helpItems, "j/k: scroll")
