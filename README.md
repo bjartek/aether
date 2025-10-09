@@ -7,7 +7,7 @@ see casts
 - iteration 1: https://asciinema.org/a/rXpJIbBdELLwfQAy7Y6JZidiS
 - iteration 2: http://asciinema.org/a/zwDZZTHTwiu50MucxAc3vVR3h  help
 - iteration 3: https://asciinema.org/a/0BeMtZblr0kEbQ8iLz0ZQoIMY events
-
+- iteration 4:     https://asciinema.org/a/U6cj7zVq9998NBOeu3ZlD3Ryz execute
 ## How to
 
 - go build the binary, or install it with go install
@@ -62,7 +62,7 @@ run `make` to build the binary start it and run it in the example folder
 
 ## Planned features
 
-- [ ] run transactions/script
+- [x] run transactions/script
 - [x] show events 
 - [x] filter events
 - [ ] show accounts
