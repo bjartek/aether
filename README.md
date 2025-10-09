@@ -8,6 +8,7 @@ see casts
 - iteration 2: http://asciinema.org/a/zwDZZTHTwiu50MucxAc3vVR3h  help
 - iteration 3: https://asciinema.org/a/0BeMtZblr0kEbQ8iLz0ZQoIMY events
 - iteration 4:     https://asciinema.org/a/U6cj7zVq9998NBOeu3ZlD3Ryz execute
+- iteration 5:     https://asciinema.org/a/4XBuCXmxXcenpYpmGR7uSFApd save interactions
 ## How to
 
 - go build the binary, or install it with go install
@@ -59,12 +60,13 @@ run `make` to build the binary start it and run it in the example folder
   - filter transactions
   - filter events
   - filter logs
+  - save interactions
+  - run interactions
+  - show events
 
 ## Planned features
 
-- [x] run transactions/script
-- [x] show events 
-- [x] filter events
 - [ ] show accounts
-- [x] show better help system
 - [ ] evm support
+- [ ] possibly fix keybindings for running tx, they are a bit clunky
+- [ ] support for running on testnet/mainnet from the latest blockheight?
