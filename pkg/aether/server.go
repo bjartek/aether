@@ -58,6 +58,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 	o := overflow.Overflow(
 		overflow.WithExistingEmulator(),
 		overflow.WithLogNone(),
+		overflow.WithReturnErrors(),
 		overflow.WithTransactionFolderName("aether"),
 		overflow.WithBasePath(basePath))
 
@@ -78,6 +79,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 	oR := overflow.Overflow(
 		overflow.WithExistingEmulator(),
 		overflow.WithLogNone(),
+		overflow.WithReturnErrors(),
 		overflow.WithBasePath(basePath))
 
 	// Send overflow ready message to UI
