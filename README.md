@@ -50,10 +50,14 @@ run `make` to build the binary start it and run it in the example folder
   - shows transaction details in an inspector
   - shows log from emulator and dev-wallet and aether
   - shows a dashboard
+  - filter transactions
+  - filter logs
 
 ## Planned features
 
 - [ ] run transactions/script
-- [x] filter transactions
-- [ ] show events with filters
+- [ ] show events 
+- [ ] filter events
 - [ ] show accounts
+- [x] show better help system
+- [ ] evm support

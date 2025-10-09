@@ -69,4 +69,9 @@ var (
 			BorderTop(true).
 			BorderForeground(borderColor).
 			Padding(1, 1)
+
+	// Help indicator style
+	helpIndicatorStyle = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Padding(0, 2)
 )

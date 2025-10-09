@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/charmbracelet/bubbles/help"
@@ -31,7 +33,6 @@ type Model struct {
 	width               int
 	height              int
 	ready               bool
-	helpHeight          int
 }
 
 // NewModel creates a new application model with default tabs.
@@ -107,7 +108,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 
 		headerHeight := 3
-		contentHeight := m.height - headerHeight
+		helpBarHeight := m.calculateHelpBarHeight()
+		contentHeight := m.height - headerHeight - helpBarHeight
 
 		// Update all views with new dimensions
 		if m.dashboardView != nil {
@@ -134,10 +136,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Help):
 			m.showHelp = !m.showHelp
-			if m.showHelp {
-				m.helpHeight = lipgloss.Height(m.help.View(m.keys))
+			// Need to update all views with new content height after toggling help
+			headerHeight := 3
+			helpBarHeight := m.calculateHelpBarHeight()
+			contentHeight := m.height - headerHeight - helpBarHeight
+			
+			// Update all views with new dimensions
+			if m.dashboardView != nil {
+				cmd = m.dashboardView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
+				cmds = append(cmds, cmd)
 			}
-			return m, nil
+			if m.transactionsView != nil {
+				cmd = m.transactionsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
+				cmds = append(cmds, cmd)
+			}
+			if m.logsView != nil {
+				cmd = m.logsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
 
 		case key.Matches(msg, m.keys.NextTab):
 			m.activeTab = (m.activeTab + 1) % len(m.tabs)
@@ -149,7 +166,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Update the appropriate view based on active tab
 	headerHeight := 3
-	contentHeight := m.height - headerHeight
+	helpBarHeight := m.calculateHelpBarHeight()
+	contentHeight := m.height - headerHeight - helpBarHeight
 
 	// Update active view
 	if m.activeTab == m.dashboardTabIndex && m.dashboardView != nil {
@@ -177,18 +195,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(validCmds...)
 }
 
+// calculateHelpBarHeight calculates the height of the help bar.
+func (m Model) calculateHelpBarHeight() int {
+	if !m.showHelp {
+		return 0
+	}
+	helpText := m.getHelpText()
+	maxWidth := m.width - 10
+	wrappedHelp := wrapText(helpText, maxWidth)
+	return strings.Count(wrappedHelp, "\n") + 2 // +2 for spacing
+}
+
 // View renders the UI.
 func (m Model) View() string {
 	if !m.ready {
 		return "Initializing..."
 	}
 
-	// Calculate available space for content (no footer)
+	// Calculate available space for content
 	headerHeight := 3
-	contentHeight := m.height - headerHeight
+	helpBarHeight := m.calculateHelpBarHeight()
+	contentHeight := m.height - headerHeight - helpBarHeight
 
 	header := m.renderHeader()
+	helpBar := m.renderHelpBar()
 	content := m.renderContent(contentHeight)
+
+	if m.showHelp {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			header,
+			helpBar,
+			content,
+		)
+	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -197,7 +237,7 @@ func (m Model) View() string {
 	)
 }
 
-// renderHeader renders the header with tab navigation and hints.
+// renderHeader renders the header with tab navigation and help indicator.
 func (m Model) renderHeader() string {
 	var tabs []string
 	for i, tab := range m.tabs {
@@ -210,80 +250,136 @@ func (m Model) renderHeader() string {
 
 	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 	
-	// Add tab-specific help hints
-	hints := ""
-	if m.activeTab == m.transactionsTabIndex {
-		hints = lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Render(" • /: filter • j/k: navigate • enter/d: detail • e: events • a: addresses • g/G: top/bottom")
-	} else if m.activeTab == m.logsTabIndex {
-		hints = lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Render(" • /: filter • j/k: scroll • g/G: top/bottom • ctrl+u/d: page")
-	}
+	// Add help indicator with spacing
+	helpIndicator := helpIndicatorStyle.Render("   ? help")
 	
-	headerContent := tabBar + hints
+	headerContent := tabBar + helpIndicator
 	header := headerStyle.Width(m.width).Render(headerContent)
 
 	return header
 }
 
+// renderHelpBar renders the help bar as a separate section.
+func (m Model) renderHelpBar() string {
+	if !m.showHelp {
+		return ""
+	}
+	
+	helpText := m.getHelpText()
+	
+	// Wrap help text to available width with proper word wrapping
+	maxWidth := m.width - 10 // Leave some margin
+	wrappedHelp := wrapText(helpText, maxWidth)
+	
+	helpContent := lipgloss.NewStyle().
+		Foreground(primaryColor).
+		Bold(true).
+		Render("Help: ") + 
+		lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render(wrappedHelp)
+	
+	// Render with padding and width
+	return lipgloss.NewStyle().
+		Padding(0, 2, 1, 2). // top, right, bottom, left
+		Width(m.width).
+		Render(helpContent)
+}
+
 // renderContent renders the main content area.
 func (m Model) renderContent(height int) string {
+	var viewContent string
+	
 	// Render dashboard tab
 	if m.activeTab == m.dashboardTabIndex && m.dashboardView != nil {
-		return contentStyle.
-			Width(m.width - 2).
-			Height(height).
-			Render(m.dashboardView.View())
+		viewContent = m.dashboardView.View()
+	} else if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
+		// Render transactions tab
+		viewContent = m.transactionsView.View()
+	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
+		// Render logs tab
+		viewContent = m.logsView.View()
+	} else {
+		// Otherwise render static content
+		viewContent = m.tabs[m.activeTab].Content
 	}
-
-	// Render transactions tab
-	if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
-		return contentStyle.
-			Width(m.width - 2).
-			Height(height).
-			Render(m.transactionsView.View())
-	}
-
-	// Render logs tab
-	if m.activeTab == m.logsTabIndex && m.logsView != nil {
-		return contentStyle.
-			Width(m.width - 2).
-			Height(height).
-			Render(m.logsView.View())
-	}
-
-	// Otherwise render static content
-	content := m.tabs[m.activeTab].Content
-
+	
 	return contentStyle.
 		Width(m.width - 2).
 		Height(height).
-		Render(content)
+		Render(viewContent)
 }
 
-// renderFooter renders the footer with help information.
-func (m Model) renderFooter() string {
-	var helpView string
-	
-	// Add tab-specific help hints
-	tabHints := ""
-	if m.activeTab == m.transactionsTabIndex {
-		tabHints = lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Render("  [j/k: navigate • enter/d: toggle detail • e: event fields • a: raw addresses • g/G: top/bottom]")
-	} else if m.activeTab == m.logsTabIndex {
-		tabHints = lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Render("  [j/k: scroll • g/G: top/bottom • ctrl+u/d: page up/down]")
+// wrapText wraps text to fit within maxWidth, breaking at word boundaries.
+func wrapText(text string, maxWidth int) string {
+	if len(text) <= maxWidth {
+		return text
 	}
 	
-	if m.showHelp {
-		helpView = m.help.FullHelpView(m.keys.FullHelp())
-	} else {
-		helpView = m.help.ShortHelpView(m.keys.ShortHelp())
+	// Split by bullet points to keep them together
+	parts := strings.Split(text, " • ")
+	var lines []string
+	var currentLine string
+	
+	for i, part := range parts {
+		// Add bullet back except for first item
+		itemText := part
+		if i > 0 {
+			itemText = "• " + part
+		}
+		
+		// Check if adding this item would exceed width
+		if currentLine == "" {
+			currentLine = itemText
+		} else if len(currentLine) + 3 + len(part) <= maxWidth {
+			currentLine += " • " + part
+		} else {
+			// Current line is full, start new line
+			lines = append(lines, currentLine)
+			currentLine = itemText
+		}
+	}
+	
+	// Add the last line
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+	
+	// Indent continuation lines for better readability
+	for i := 1; i < len(lines); i++ {
+		lines[i] = "      " + lines[i]
+	}
+	
+	return strings.Join(lines, "\n")
+}
+
+// getHelpText returns the help text for the current view.
+func (m Model) getHelpText() string {
+	if !m.showHelp {
+		return ""
 	}
 
-	return footerStyle.Width(m.width).Render(helpView + tabHints)
+	var helpItems []string
+	
+	// Global keybindings
+	helpItems = append(helpItems, "tab/→: next")
+	helpItems = append(helpItems, "shift+tab/←: prev")
+	helpItems = append(helpItems, "q: quit")
+	
+	// View-specific keybindings
+	if m.activeTab == m.transactionsTabIndex {
+		helpItems = append(helpItems, "/: filter")
+		helpItems = append(helpItems, "j/k: navigate")
+		helpItems = append(helpItems, "enter/d: detail")
+		helpItems = append(helpItems, "e: events")
+		helpItems = append(helpItems, "a: addresses")
+		helpItems = append(helpItems, "g/G: top/bottom")
+	} else if m.activeTab == m.logsTabIndex {
+		helpItems = append(helpItems, "/: filter")
+		helpItems = append(helpItems, "j/k: scroll")
+		helpItems = append(helpItems, "g/G: top/bottom")
+		helpItems = append(helpItems, "ctrl+u/d: page")
+	}
+	
+	return strings.Join(helpItems, " • ")
 }
