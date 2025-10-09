@@ -59,7 +59,6 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		overflow.WithExistingEmulator(),
 		overflow.WithLogNone(),
 		overflow.WithTransactionFolderName("aether"),
-		overflow.WithPanicOnError(),
 		overflow.WithBasePath(basePath))
 
 	_, err := o.CreateAccountsE(ctx)
@@ -76,10 +75,15 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		Interface("registry", dump).
 		Msg("Initialized account registry")
 
+	oR := overflow.Overflow(
+		overflow.WithExistingEmulator(),
+		overflow.WithLogNone(),
+		overflow.WithBasePath(basePath))
+
 	// Send overflow ready message to UI
 	if teaProgram != nil {
 		teaProgram.Send(OverflowReadyMsg{
-			Overflow:        o,
+			Overflow:        oR,
 			AccountRegistry: a.AccountRegistry,
 		})
 	}

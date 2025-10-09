@@ -56,20 +56,20 @@ type ScriptFile struct {
 
 // InputField represents a form input field
 type InputField struct {
-	Label     string
-	TypeHint  string
-	Input     textinput.Model
-	IsSigner  bool // True if this is a signer selection field
+	Label    string
+	TypeHint string
+	Input    textinput.Model
+	IsSigner bool // True if this is a signer selection field
 }
 
 // RunnerKeyMap defines keybindings for the runner view
 type RunnerKeyMap struct {
-	Up            key.Binding
-	Down          key.Binding
-	Enter         key.Binding
-	Run           key.Binding
-	NextField     key.Binding
-	PrevField     key.Binding
+	Up        key.Binding
+	Down      key.Binding
+	Enter     key.Binding
+	Run       key.Binding
+	NextField key.Binding
+	PrevField key.Binding
 }
 
 // DefaultRunnerKeyMap returns the default keybindings for runner view
@@ -104,24 +104,24 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 
 // RunnerView manages the script/transaction runner interface
 type RunnerView struct {
-	mu                sync.RWMutex
-	table             table.Model
-	codeViewport      viewport.Model
-	keys              RunnerKeyMap
-	ready             bool
-	scripts           []ScriptFile
-	width             int
-	height            int
-	accountRegistry   *aether.AccountRegistry
-	inputFields       []InputField
-	activeFieldIndex  int
-	editingField      bool
-	availableSigners  []string // List of available signer names
-	overflow          *overflow.OverflowState
-	spinner           spinner.Model
-	isExecuting       bool
-	executionResult   string
-	executionError    error
+	mu               sync.RWMutex
+	table            table.Model
+	codeViewport     viewport.Model
+	keys             RunnerKeyMap
+	ready            bool
+	scripts          []ScriptFile
+	width            int
+	height           int
+	accountRegistry  *aether.AccountRegistry
+	inputFields      []InputField
+	activeFieldIndex int
+	editingField     bool
+	availableSigners []string // List of available signer names
+	overflow         *overflow.OverflowState
+	spinner          spinner.Model
+	isExecuting      bool
+	executionResult  string
+	executionError   error
 }
 
 // NewRunnerView creates a new runner view
@@ -183,8 +183,8 @@ func (rv *RunnerView) scanFiles() {
 
 	// Paths to scan
 	scanPaths := []struct {
-		dir  string
-		typ  ScriptType
+		dir string
+		typ ScriptType
 	}{
 		{"scripts", TypeScript},
 		{"transactions", TypeTransaction},
@@ -246,7 +246,7 @@ func (rv *RunnerView) scanFiles() {
 	rv.mu.Lock()
 	rv.scripts = files
 	rv.refreshTable()
-	
+
 	// Setup input fields for first script if any
 	if len(rv.scripts) > 0 {
 		rv.setupInputFields(rv.scripts[0])
@@ -408,17 +408,17 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 	// Capture values while holding the lock
 	rv.mu.RLock()
 	o := rv.overflow
-	
+
 	// Build overflow options from input fields
 	var opts []overflow.OverflowInteractionOption
-	
+
 	// Collect signers and arguments
 	for _, field := range rv.inputFields {
 		value := field.Input.Value()
 		if value == "" {
 			continue
 		}
-		
+
 		if field.IsSigner {
 			opts = append(opts, overflow.WithSigner(value))
 		} else {
@@ -426,7 +426,7 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 		}
 	}
 	rv.mu.RUnlock()
-	
+
 	// Execute asynchronously without holding the lock
 	return func() tea.Msg {
 		// Recover from any panics during execution
@@ -439,7 +439,7 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 				}
 			}
 		}()
-		
+
 		if o == nil {
 			return ExecutionCompleteMsg{
 				Error: fmt.Errorf("overflow not initialized"),
@@ -449,7 +449,7 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 		// Execute based on script type
 		// Overflow expects script name without .cdc extension
 		scriptName := script.Name
-		
+
 		if script.Type == TypeTransaction {
 			txResult := o.Tx(scriptName, opts...)
 			result = ExecutionCompleteMsg{
@@ -465,7 +465,7 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 				Error:        scriptResult.Err,
 			}
 		}
-		
+
 		return result
 	}
 }
@@ -475,13 +475,13 @@ func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) 
 	if result == nil {
 		return "✓ Script executed successfully"
 	}
-	
+
 	var b strings.Builder
-	
+
 	b.WriteString("✓ Script executed successfully\n\n")
 	b.WriteString("Output:\n")
 	b.WriteString(fmt.Sprintf("%v", result.Output))
-	
+
 	return b.String()
 }
 
@@ -490,12 +490,12 @@ func (rv *RunnerView) formatTransactionResult(result *overflow.OverflowResult) s
 	if result == nil {
 		return "✓ Transaction executed successfully"
 	}
-	
+
 	var b strings.Builder
-	
+
 	b.WriteString("✓ Transaction executed successfully\n\n")
 	b.WriteString(fmt.Sprintf("Transaction ID: %s\n", result.Id))
-	
+
 	// Show events if any
 	if len(result.Events) > 0 {
 		b.WriteString(fmt.Sprintf("\nEvents (%d):\n", len(result.Events)))
@@ -509,7 +509,7 @@ func (rv *RunnerView) formatTransactionResult(result *overflow.OverflowResult) s
 			count++
 		}
 	}
-	
+
 	return b.String()
 }
 
@@ -547,7 +547,7 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		rv.mu.RLock()
 		isExecuting := rv.isExecuting
 		rv.mu.RUnlock()
-		
+
 		if isExecuting {
 			rv.mu.Lock()
 			var cmd tea.Cmd
@@ -578,7 +578,7 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		isEditing := rv.editingField
 		hasFields := len(rv.inputFields) > 0
 		rv.mu.RUnlock()
-		
+
 		if isEditing && hasFields {
 			switch {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
@@ -633,7 +633,7 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			hasFields = len(rv.inputFields) > 0
 			activeIdx := rv.activeFieldIndex
 			rv.mu.RUnlock()
-			
+
 			if hasFields {
 				rv.mu.Lock()
 				rv.editingField = true
@@ -701,7 +701,7 @@ func (rv *RunnerView) View() string {
 	}
 
 	rv.mu.RLock()
-	
+
 	if len(rv.scripts) == 0 {
 		rv.mu.RUnlock()
 		return lipgloss.NewStyle().
@@ -723,11 +723,11 @@ func (rv *RunnerView) View() string {
 	var detailView string
 	if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 		script := rv.scripts[selectedIdx]
-		
+
 		// Check if we need to setup fields - if so, upgrade to write lock
 		needsSetup := len(rv.inputFields) == 0
 		rv.mu.RUnlock()
-		
+
 		if needsSetup {
 			rv.mu.Lock()
 			// Double-check after acquiring write lock
@@ -737,7 +737,7 @@ func (rv *RunnerView) View() string {
 			}
 			rv.mu.Unlock()
 		}
-		
+
 		// Re-acquire read lock for rendering
 		rv.mu.RLock()
 		detailView = rv.renderDetail(script, detailWidth, rv.height)
@@ -797,9 +797,9 @@ func (rv *RunnerView) renderDetail(script ScriptFile, width, height int) string 
 
 			label := labelStyle.Render(fmt.Sprintf("%-20s", field.Label+":"))
 			typeHint := lipgloss.NewStyle().Foreground(mutedColor).Render(field.TypeHint)
-			
+
 			content.WriteString(fmt.Sprintf("%s %s\n", label, typeHint))
-			
+
 			// Show input box
 			inputStyle := lipgloss.NewStyle().Foreground(base0)
 			if i == rv.activeFieldIndex && rv.editingField {
