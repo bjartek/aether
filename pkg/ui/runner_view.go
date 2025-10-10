@@ -39,6 +39,9 @@ type ExecutionCompleteMsg struct {
 	Error        error
 }
 
+// RescanFilesMsg triggers a rescan of script/transaction files
+type RescanFilesMsg struct{}
+
 // Parameter represents a parameter in a script or transaction
 type Parameter struct {
 	Name string
@@ -55,6 +58,7 @@ type ScriptFile struct {
 	Code       string
 	Config     *flow.TransactionConfig // Pre-populated config from JSON (if loaded from .json file)
 	IsFromJSON bool                    // True if this was loaded from a JSON config file
+	Network    string                  // Network this script is specific to (emulator, testnet, mainnet, or "any")
 }
 
 // InputField represents a form input field
@@ -74,6 +78,7 @@ type RunnerKeyMap struct {
 	NextField key.Binding
 	PrevField key.Binding
 	Save      key.Binding
+	Refresh   key.Binding
 }
 
 // DefaultRunnerKeyMap returns the default keybindings for runner view
@@ -106,6 +111,10 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 		Save: key.NewBinding(
 			key.WithKeys("s"),
 			key.WithHelp("s", "save config"),
+		),
+		Refresh: key.NewBinding(
+			key.WithKeys("ctrl+l"),
+			key.WithHelp("ctrl+l", "refresh list"),
 		),
 	}
 }
@@ -140,6 +149,7 @@ func NewRunnerView() *RunnerView {
 	columns := []table.Column{
 		{Title: "Type", Width: 12},
 		{Title: "Name", Width: 30},
+		{Title: "Network", Width: 10},
 	}
 
 	t := table.New(
@@ -267,13 +277,18 @@ func (rv *RunnerView) scanFiles() {
 					return nil
 				}
 
+				// Detect network from config name
+				configNetwork := rv.detectNetwork(config.Name)
+				displayName := strings.TrimSuffix(filepath.Base(path), ".json") + " (config)"
+
 				script := ScriptFile{
-					Name:       strings.TrimSuffix(filepath.Base(path), ".json") + " (config)",
+					Name:       displayName,
 					Path:       path,
 					Type:       sp.typ,
 					Code:       string(code),
 					Config:     config,
 					IsFromJSON: true,
+					Network:    configNetwork,
 				}
 
 				// Parse parameters and signers from the .cdc file
@@ -282,7 +297,6 @@ func (rv *RunnerView) scanFiles() {
 				files = append(files, script)
 				return nil
 			}
-
 			// Handle .cdc files
 			if ext == ".cdc" {
 				// Skip test files
@@ -295,12 +309,21 @@ func (rv *RunnerView) scanFiles() {
 					return err
 				}
 
+				basename := filepath.Base(path)
+				name := strings.TrimSuffix(basename, ".cdc")
+				
+				// Detect network from filename suffix
+				network := rv.detectNetwork(name)
+				// Remove network suffix from display name if present
+				displayName := rv.removeNetworkSuffix(name)
+
 				script := ScriptFile{
-					Name:       strings.TrimSuffix(filepath.Base(path), ".cdc"),
+					Name:       displayName,
 					Path:       path,
 					Type:       sp.typ,
 					Code:       string(code),
 					IsFromJSON: false,
+					Network:    network,
 				}
 
 				// Parse parameters and signers
@@ -309,7 +332,6 @@ func (rv *RunnerView) scanFiles() {
 				files = append(files, script)
 				return nil
 			}
-
 			return nil
 		})
 
@@ -334,6 +356,32 @@ func (rv *RunnerView) scanFiles() {
 		rv.updateCodeViewport(rv.scripts[0])
 	}
 	rv.mu.Unlock()
+}
+
+// detectNetwork determines the network from a filename
+func (rv *RunnerView) detectNetwork(filename string) string {
+	// Check for network suffixes
+	if strings.HasSuffix(filename, ".emulator") {
+		return "emulator"
+	} else if strings.HasSuffix(filename, ".testnet") {
+		return "testnet"
+	} else if strings.HasSuffix(filename, ".mainnet") {
+		return "mainnet"
+	}
+	
+	// If no suffix, check if code contains network-specific imports (addresses)
+	// For now, return "any" - we could enhance this later
+	return "any"
+}
+
+// removeNetworkSuffix removes network suffix from filename for display
+func (rv *RunnerView) removeNetworkSuffix(filename string) string {
+	for _, suffix := range []string{".emulator", ".testnet", ".mainnet"} {
+		if strings.HasSuffix(filename, suffix) {
+			return strings.TrimSuffix(filename, suffix)
+		}
+	}
+	return filename
 }
 
 // parseScriptFile extracts parameters and signers from cadence code using AST parser
@@ -402,6 +450,7 @@ func (rv *RunnerView) refreshTable() {
 		rows[i] = table.Row{
 			string(script.Type),
 			script.Name,
+			script.Network,
 		}
 	}
 	rv.table.SetRows(rows)
@@ -703,6 +752,11 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		rv.mu.Unlock()
 		return nil
 
+	case RescanFilesMsg:
+		// Rescan files synchronously to update table
+		rv.scanFiles()
+		return nil
+
 	case spinner.TickMsg:
 		rv.mu.RLock()
 		isExecuting := rv.isExecuting
@@ -870,6 +924,12 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			rv.saveError = ""
 			rv.mu.Unlock()
 			return textinput.Blink
+
+		case key.Matches(msg, rv.keys.Refresh):
+			// Trigger rescan of files
+			return func() tea.Msg {
+				return RescanFilesMsg{}
+			}
 
 		case key.Matches(msg, rv.keys.Down), key.Matches(msg, rv.keys.NextField):
 			rv.mu.Lock()

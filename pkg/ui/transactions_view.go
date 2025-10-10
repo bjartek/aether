@@ -2,12 +2,15 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
@@ -57,6 +60,7 @@ type TransactionsKeyMap struct {
 	ToggleEventFields  key.Binding
 	ToggleRawAddresses key.Binding
 	Filter             key.Binding
+	Save               key.Binding
 }
 
 // DefaultTransactionsKeyMap returns the default keybindings for transactions view
@@ -94,6 +98,10 @@ func DefaultTransactionsKeyMap() TransactionsKeyMap {
 			key.WithKeys("/"),
 			key.WithHelp("/", "filter"),
 		),
+		Save: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "save transaction"),
+		),
 	}
 }
 
@@ -103,6 +111,7 @@ type TransactionsView struct {
 	table             table.Model
 	detailViewport    viewport.Model
 	filterInput       textinput.Model
+	saveInput         textinput.Model // Input for save filename
 	keys              TransactionsKeyMap
 	ready             bool
 	transactions      []TransactionData
@@ -115,6 +124,9 @@ type TransactionsView struct {
 	showRawAddresses  bool   // Toggle showing raw addresses vs friendly names
 	filterMode        bool   // Whether filter input is active
 	filterText        string // Current filter text
+	savingMode        bool   // Whether save dialog is active
+	saveError         string // Error message from last save attempt
+	saveSuccess       string // Success message from last save
 	accountRegistry   *aether.AccountRegistry
 }
 
@@ -156,12 +168,19 @@ func NewTransactionsView() *TransactionsView {
 	filterInput.CharLimit = 50
 	filterInput.Width = 50
 
+	// Create save input
+	saveInput := textinput.New()
+	saveInput.Placeholder = "transaction-name"
+	saveInput.CharLimit = 50
+	saveInput.Width = 40
+
 	const maxTransactions = 100
 	
 	return &TransactionsView{
 		table:            t,
 		detailViewport:   vp,
 		filterInput:      filterInput,
+		saveInput:        saveInput,
 		keys:             DefaultTransactionsKeyMap(),
 		ready:            false,
 		transactions:     make([]TransactionData, 0, maxTransactions),
@@ -172,6 +191,7 @@ func NewTransactionsView() *TransactionsView {
 		showRawAddresses: false, // Show friendly names by default
 		filterMode:       false,
 		filterText:       "",
+		savingMode:       false,
 	}
 }
 func (tv *TransactionsView) Init() tea.Cmd {
@@ -492,6 +512,66 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		tv.detailViewport.Height = height - 3 // Leave room for hint text
 
 	case tea.KeyMsg:
+		// Handle save mode
+		if tv.savingMode {
+			switch msg.String() {
+			case "esc":
+				// Cancel save
+				tv.savingMode = false
+				tv.saveInput.SetValue("")
+				tv.saveInput.Blur()
+				tv.saveError = ""
+				tv.saveSuccess = ""
+				return nil
+			case "enter":
+				// Perform save
+				filename := tv.saveInput.Value()
+				if filename == "" {
+					tv.saveError = "Filename cannot be empty"
+					return nil
+				}
+				
+				// Get selected transaction from the currently displayed list
+				selectedIdx := tv.table.Cursor()
+				tv.mu.RLock()
+				
+				// Use the same logic as refreshTable - check which list is displayed
+				txList := tv.transactions
+				if tv.filterText != "" {
+					txList = tv.filteredTxs
+				}
+				
+				if selectedIdx < 0 || selectedIdx >= len(txList) {
+					tv.mu.RUnlock()
+					tv.saveError = "No transaction selected"
+					return nil
+				}
+				tx := txList[selectedIdx]
+				tv.mu.RUnlock()
+				
+				// Perform save
+				err := tv.saveTransaction(filename, tx)
+				if err != nil {
+					tv.saveError = err.Error()
+					tv.saveSuccess = ""
+					return nil
+				}
+				
+				// Success - show message and close dialog
+				tv.saveSuccess = fmt.Sprintf("Saved %s.emulator.cdc and %s.json", filename, filename)
+				tv.savingMode = false
+				tv.saveInput.SetValue("")
+				tv.saveInput.Blur()
+				tv.saveError = ""
+				return nil
+			default:
+				// Pass input to save textinput
+				var cmd tea.Cmd
+				tv.saveInput, cmd = tv.saveInput.Update(msg)
+				return cmd
+			}
+		}
+		
 		// Handle filter mode
 		if tv.filterMode {
 			switch {
@@ -579,6 +659,15 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			return nil
 		}
 
+		// Handle save activation
+		if key.Matches(msg, tv.keys.Save) {
+			tv.savingMode = true
+			tv.saveInput.Focus()
+			tv.saveError = ""
+			tv.saveSuccess = "" // Clear previous success message
+			return textinput.Blink
+		}
+
 		// In full detail mode, pass keys to viewport for scrolling
 		if tv.fullDetailMode {
 			var cmd tea.Cmd
@@ -590,6 +679,50 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			tv.table, cmd = tv.table.Update(msg)
 			return cmd
 		}
+	}
+
+	return nil
+}
+
+// saveTransaction saves a transaction to .cdc and .json files
+func (tv *TransactionsView) saveTransaction(filename string, tx TransactionData) error {
+	// Always use transactions directory, create if needed
+	dir := "transactions"
+	
+	// Check if cadence/transactions exists instead
+	if _, err := os.Stat("cadence/transactions"); err == nil {
+		dir = "cadence/transactions"
+	} else if _, err := os.Stat("transactions"); os.IsNotExist(err) {
+		// Neither exists, create transactions
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+
+	// Save .cdc file with network suffix (.emulator.cdc)
+	cdcFilename := filename + ".emulator.cdc"
+	cdcPath := filepath.Join(dir, cdcFilename)
+	if err := os.WriteFile(cdcPath, []byte(tx.Script), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", cdcPath, err)
+	}
+
+	// Build JSON config with arguments (but empty signers)
+	config := &flow.TransactionConfig{
+		Name:      filename + ".emulator",
+		Signers:   []string{}, // Leave empty as requested
+		Arguments: make(map[string]string),
+	}
+
+	// Populate arguments from transaction data
+	for _, arg := range tx.Arguments {
+		config.Arguments[arg.Name] = arg.Value
+	}
+
+	// Save JSON config file
+	jsonFilename := filename + ".json"
+	jsonPath := filepath.Join(dir, jsonFilename)
+	if err := flow.SaveTransactionConfig(jsonPath, config); err != nil {
+		return fmt.Errorf("failed to write %s: %w", jsonPath, err)
 	}
 
 	return nil
@@ -608,6 +741,27 @@ func (tv *TransactionsView) View() string {
 		return lipgloss.NewStyle().
 			Foreground(mutedColor).
 			Render("Waiting for transactions...")
+	}
+
+	// Show save dialog if in saving mode
+	if tv.savingMode {
+		var content strings.Builder
+		saveTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Save Transaction")
+		content.WriteString(saveTitle + "\n\n")
+		
+		content.WriteString("Enter filename (without extension):\n")
+		content.WriteString(tv.saveInput.View() + "\n\n")
+		
+		if tv.saveError != "" {
+			errorStyle := lipgloss.NewStyle().Foreground(errorColor)
+			content.WriteString(errorStyle.Render("Error: "+tv.saveError) + "\n\n")
+		}
+		
+		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
+		content.WriteString(hintStyle.Render("Will save as <name>.emulator.cdc and <name>.json") + "\n")
+		content.WriteString(hintStyle.Render("Press Enter to save, Esc to cancel") + "\n")
+		
+		return content.String()
 	}
 
 	// Full detail mode - show only the transaction detail in viewport
@@ -631,6 +785,15 @@ func (tv *TransactionsView) View() string {
 			Foreground(mutedColor)
 		matchCount := len(tv.filteredTxs)
 		filterBar = filterStyle.Render(fmt.Sprintf("Filter: '%s' (%d matches) • Press / to edit, Esc to clear", tv.filterText, matchCount)) + "\n"
+	}
+	
+	// Show success message if present
+	var successBar string
+	if tv.saveSuccess != "" {
+		successStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10")). // Green color
+			Bold(true)
+		successBar = successStyle.Render("✓ " + tv.saveSuccess) + "\n"
 	}
 
 	// Split view mode - table on left, detail on right
@@ -662,9 +825,10 @@ func (tv *TransactionsView) View() string {
 		detailView,
 	)
 	
-	// Add filter bar on top if present
-	if filterBar != "" {
-		return filterBar + mainView
+	// Add filter bar and success message on top if present
+	topBars := successBar + filterBar
+	if topBars != "" {
+		return topBars + mainView
 	}
 	return mainView
 }

@@ -66,6 +66,7 @@ run `make` to build the binary start it and run it in the example folder
 
 ## Planned features
 
+- [x] save transactions from transactions view with network suffix
 - [ ] show accounts
 - [ ] evm support
 - [ ] possibly fix keybindings for running tx, they are a bit clunky

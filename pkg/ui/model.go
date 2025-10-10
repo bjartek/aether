@@ -453,6 +453,7 @@ func (m Model) getHelpText() string {
 		helpItems = append(helpItems, "enter/d: detail")
 		helpItems = append(helpItems, "e: events")
 		helpItems = append(helpItems, "a: addresses")
+		helpItems = append(helpItems, "s: save")
 		helpItems = append(helpItems, "g/G: top/bottom")
 	} else if m.activeTab == m.eventsTabIndex {
 		helpItems = append(helpItems, "/: filter")
@@ -465,6 +466,7 @@ func (m Model) getHelpText() string {
 		helpItems = append(helpItems, "enter: edit field")
 		helpItems = append(helpItems, "esc: stop editing")
 		helpItems = append(helpItems, "r: run")
+		helpItems = append(helpItems, "ctrl+l: refresh list")
 	} else if m.activeTab == m.logsTabIndex {
 		helpItems = append(helpItems, "/: filter")
 		helpItems = append(helpItems, "j/k: scroll")
