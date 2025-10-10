@@ -160,7 +160,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 
 		headerHeight := 3
-		helpBarHeight := m.calculateHelpBarHeight()
+		helpBarHeight := 0
+		if m.showHelp {
+			helpBarHeight = lipgloss.Height(m.renderHelpBar())
+		}
 		contentHeight := m.height - headerHeight - helpBarHeight
 
 		// Update all views with new dimensions
@@ -198,7 +201,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = !m.showHelp
 			// Need to update all views with new content height after toggling help
 			headerHeight := 3
-			helpBarHeight := m.calculateHelpBarHeight()
+			helpBarHeight := 0
+			if m.showHelp {
+				helpBarHeight = lipgloss.Height(m.renderHelpBar())
+			}
 			contentHeight := m.height - headerHeight - helpBarHeight
 			
 			// Update all views with new dimensions
@@ -234,7 +240,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Update the appropriate view based on active tab
 	headerHeight := 3
-	helpBarHeight := m.calculateHelpBarHeight()
+	helpBarHeight := 0
+	if m.showHelp {
+		helpBarHeight = lipgloss.Height(m.renderHelpBar())
+	}
 	contentHeight := m.height - headerHeight - helpBarHeight
 
 	// Update active view
@@ -269,17 +278,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(validCmds...)
 }
 
-// calculateHelpBarHeight calculates the height of the help bar.
-func (m Model) calculateHelpBarHeight() int {
-	if !m.showHelp {
-		return 0
-	}
-	helpText := m.getHelpText()
-	maxWidth := m.width - 10
-	wrappedHelp := wrapText(helpText, maxWidth)
-	return strings.Count(wrappedHelp, "\n") + 2 // +2 for spacing
-}
-
 // View renders the UI.
 func (m Model) View() string {
 	if !m.ready {
@@ -288,7 +286,10 @@ func (m Model) View() string {
 
 	// Calculate available space for content
 	headerHeight := 3
-	helpBarHeight := m.calculateHelpBarHeight()
+	helpBarHeight := 0
+	if m.showHelp {
+		helpBarHeight = lipgloss.Height(m.renderHelpBar())
+	}
 	contentHeight := m.height - headerHeight - helpBarHeight
 
 	header := m.renderHeader()
@@ -333,31 +334,22 @@ func (m Model) renderHeader() string {
 	return header
 }
 
-// renderHelpBar renders the help bar as a separate section.
+// renderHelpBar renders the help bar using the help bubble.
 func (m Model) renderHelpBar() string {
 	if !m.showHelp {
 		return ""
 	}
 	
-	helpText := m.getHelpText()
+	// Get the appropriate KeyMap based on active tab
+	keyMap := m.getActiveKeyMap()
 	
-	// Wrap help text to available width with proper word wrapping
-	maxWidth := m.width - 10 // Leave some margin
-	wrappedHelp := wrapText(helpText, maxWidth)
+	// Use the help bubble to render
+	helpView := m.help.View(keyMap)
 	
-	helpContent := lipgloss.NewStyle().
-		Foreground(primaryColor).
-		Bold(true).
-		Render("Help: ") + 
-		lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Render(wrappedHelp)
-	
-	// Render with padding and width
 	return lipgloss.NewStyle().
-		Padding(0, 2, 1, 2). // top, right, bottom, left
+		Padding(0, 2, 1, 2).
 		Width(m.width).
-		Render(helpContent)
+		Render(helpView)
 }
 
 // renderContent renders the main content area.
@@ -433,46 +425,93 @@ func wrapText(text string, maxWidth int) string {
 	return strings.Join(lines, "\n")
 }
 
-// getHelpText returns the help text for the current view.
-func (m Model) getHelpText() string {
-	if !m.showHelp {
-		return ""
+// getActiveKeyMap returns the combined KeyMap for the current view.
+func (m Model) getActiveKeyMap() help.KeyMap {
+	// Start with global keys
+	var keys CombinedKeyMap
+	keys.Global = m.keys
+	
+	// Add view-specific keys based on active tab
+	if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
+		keys.Transactions = &m.transactionsView.keys
+	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
+		keys.Events = &m.eventsView.keys
+	} else if m.activeTab == m.runnerTabIndex && m.runnerView != nil {
+		m.runnerView.mu.RLock()
+		keys.Runner = &m.runnerView.keys
+		m.runnerView.mu.RUnlock()
+	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
+		keys.Logs = &m.logsView.keys
 	}
+	
+	return keys
+}
 
-	var helpItems []string
+// CombinedKeyMap combines global and view-specific key maps.
+type CombinedKeyMap struct {
+	Global       KeyMap
+	Transactions *TransactionsKeyMap
+	Events       *EventsKeyMap
+	Runner       *RunnerKeyMap
+	Logs         *LogsKeyMap
+}
+
+// ShortHelp returns keybindings to be shown in the mini help view.
+func (k CombinedKeyMap) ShortHelp() []key.Binding {
+	bindings := k.Global.ShortHelp()
 	
-	// Global keybindings
-	helpItems = append(helpItems, "tab/→: next")
-	helpItems = append(helpItems, "shift+tab/←: prev")
-	helpItems = append(helpItems, "q: quit")
-	
-	// View-specific keybindings
-	if m.activeTab == m.transactionsTabIndex {
-		helpItems = append(helpItems, "/: filter")
-		helpItems = append(helpItems, "j/k: navigate")
-		helpItems = append(helpItems, "enter/d: detail")
-		helpItems = append(helpItems, "e: events")
-		helpItems = append(helpItems, "a: addresses")
-		helpItems = append(helpItems, "s: save")
-		helpItems = append(helpItems, "g/G: top/bottom")
-	} else if m.activeTab == m.eventsTabIndex {
-		helpItems = append(helpItems, "/: filter")
-		helpItems = append(helpItems, "j/k: navigate")
-		helpItems = append(helpItems, "enter/d: detail")
-		helpItems = append(helpItems, "a: addresses")
-		helpItems = append(helpItems, "g/G: top/bottom")
-	} else if m.activeTab == m.runnerTabIndex {
-		helpItems = append(helpItems, "j/k: navigate")
-		helpItems = append(helpItems, "enter: edit field")
-		helpItems = append(helpItems, "esc: stop editing")
-		helpItems = append(helpItems, "r: run")
-		helpItems = append(helpItems, "ctrl+l: refresh list")
-	} else if m.activeTab == m.logsTabIndex {
-		helpItems = append(helpItems, "/: filter")
-		helpItems = append(helpItems, "j/k: scroll")
-		helpItems = append(helpItems, "g/G: top/bottom")
-		helpItems = append(helpItems, "ctrl+u/d: page")
+	if k.Transactions != nil {
+		bindings = append(bindings, k.Transactions.Filter, k.Transactions.ToggleFullDetail, k.Transactions.Save)
+	} else if k.Events != nil {
+		bindings = append(bindings, k.Events.Filter, k.Events.ToggleFullDetail)
+	} else if k.Runner != nil {
+		bindings = append(bindings, k.Runner.Run, k.Runner.Save, k.Runner.Refresh)
+	} else if k.Logs != nil {
+		bindings = append(bindings, k.Logs.Filter)
 	}
 	
-	return strings.Join(helpItems, " • ")
+	return bindings
+}
+
+// FullHelp returns keybindings for the expanded help view.
+func (k CombinedKeyMap) FullHelp() [][]key.Binding {
+	rows := k.Global.FullHelp()
+	
+	if k.Transactions != nil {
+		rows = append(rows, []key.Binding{
+			k.Transactions.LineUp, k.Transactions.LineDown,
+			k.Transactions.GotoTop, k.Transactions.GotoEnd,
+		})
+		rows = append(rows, []key.Binding{
+			k.Transactions.Filter, k.Transactions.ToggleFullDetail,
+			k.Transactions.ToggleEventFields, k.Transactions.ToggleRawAddresses,
+			k.Transactions.Save,
+		})
+	} else if k.Events != nil {
+		rows = append(rows, []key.Binding{
+			k.Events.LineUp, k.Events.LineDown,
+			k.Events.GotoTop, k.Events.GotoEnd,
+		})
+		rows = append(rows, []key.Binding{
+			k.Events.Filter, k.Events.ToggleFullDetail,
+			k.Events.ToggleRawAddresses,
+		})
+	} else if k.Runner != nil {
+		rows = append(rows, []key.Binding{
+			k.Runner.Up, k.Runner.Down, k.Runner.Enter,
+		})
+		rows = append(rows, []key.Binding{
+			k.Runner.Run, k.Runner.Save, k.Runner.Refresh,
+		})
+	} else if k.Logs != nil {
+		rows = append(rows, []key.Binding{
+			k.Logs.LineUp, k.Logs.LineDown,
+			k.Logs.GotoTop, k.Logs.GotoEnd,
+		})
+		rows = append(rows, []key.Binding{
+			k.Logs.Filter, k.Logs.PageDown, k.Logs.PageUp,
+		})
+	}
+	
+	return rows
 }
