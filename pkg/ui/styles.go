@@ -9,22 +9,22 @@ import "github.com/charmbracelet/lipgloss"
 var (
 	// Solarized Dark color palette
 	// Base colors
-	base03         = lipgloss.Color("#002b36") // background
-	base02         = lipgloss.Color("#073642") // background highlights
-	base01         = lipgloss.Color("#586e75") // comments / borders
-	base0          = lipgloss.Color("#839496") // body text
-	base1          = lipgloss.Color("#93a1a1") // emphasized content
-	
+	base03 = lipgloss.Color("#002b36") // background
+	base02 = lipgloss.Color("#073642") // background highlights
+	base01 = lipgloss.Color("#586e75") // comments / borders
+	base0  = lipgloss.Color("#839496") // body text
+	base1  = lipgloss.Color("#93a1a1") // emphasized content
+
 	// Accent colors
-	solarBlue      = lipgloss.Color("#268bd2")
-	solarCyan      = lipgloss.Color("#2aa198")
-	solarGreen     = lipgloss.Color("#859900")
-	solarYellow    = lipgloss.Color("#b58900")
-	solarOrange    = lipgloss.Color("#cb4b16")
-	solarRed       = lipgloss.Color("#dc322f")
-	solarMagenta   = lipgloss.Color("#d33682")
-	solarViolet    = lipgloss.Color("#6c71c4")
-	
+	solarBlue    = lipgloss.Color("#268bd2")
+	solarCyan    = lipgloss.Color("#2aa198")
+	solarGreen   = lipgloss.Color("#859900")
+	solarYellow  = lipgloss.Color("#b58900")
+	solarOrange  = lipgloss.Color("#cb4b16")
+	solarRed     = lipgloss.Color("#dc322f")
+	solarMagenta = lipgloss.Color("#d33682")
+	solarViolet  = lipgloss.Color("#6c71c4")
+
 	// Semantic color mappings
 	primaryColor   = solarBlue
 	secondaryColor = solarCyan
@@ -72,6 +72,6 @@ var (
 
 	// Help indicator style
 	helpIndicatorStyle = lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Padding(0, 2)
+				Foreground(mutedColor).
+				Padding(0, 2)
 )
