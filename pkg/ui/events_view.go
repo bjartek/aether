@@ -61,8 +61,8 @@ func DefaultEventsKeyMap() EventsKeyMap {
 			key.WithHelp("G/end", "go to bottom"),
 		),
 		ToggleFullDetail: key.NewBinding(
-			key.WithKeys("enter", "d"),
-			key.WithHelp("enter/d", "toggle full detail"),
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "toggle full detail"),
 		),
 		ToggleRawAddresses: key.NewBinding(
 			key.WithKeys("a"),
@@ -420,6 +420,12 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			}
 			return nil
 		}
+		
+		// Handle Esc to exit full detail view
+		if ev.fullDetailMode && key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
+			ev.fullDetailMode = false
+			return nil
+		}
 
 		// Handle toggle raw addresses
 		if key.Matches(msg, ev.keys.ToggleRawAddresses) {
@@ -470,7 +476,7 @@ func (ev *EventsView) View() string {
 	if ev.fullDetailMode {
 		hint := lipgloss.NewStyle().
 			Foreground(mutedColor).
-			Render("Press Enter or 'd' to return to table view | j/k to scroll")
+			Render("Press Tab or Esc to return to table view | j/k to scroll")
 		return hint + "\n\n" + ev.detailViewport.View()
 	}
 
@@ -662,7 +668,7 @@ func (ev *EventsView) renderEventDetailCondensed(event EventData, maxLines int) 
 	// Hint to view full details
 	if lineCount+2 < maxLines {
 		details.WriteString("\n")
-		details.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Render("Press Enter/d for full details"))
+		details.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Render("Press Tab for full details"))
 	}
 
 	return details.String()

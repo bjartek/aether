@@ -93,8 +93,8 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 			key.WithHelp("j/↓", "down"),
 		),
 		Enter: key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("enter", "edit field"),
+			key.WithKeys("enter", "tab"),
+			key.WithHelp("enter/tab", "edit field"),
 		),
 		Run: key.NewBinding(
 			key.WithKeys("ctrl+r", "r"),
@@ -856,7 +856,7 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
 				rv.mu.Unlock()
 				return nil
-			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "tab"))):
 				rv.mu.Lock()
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
 				// Move to next field and auto-focus it
@@ -1119,9 +1119,9 @@ func (rv *RunnerView) renderDetail(script ScriptFile, width, height int) string 
 		// Hint
 		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
 		if rv.editingField {
-			content.WriteString(hintStyle.Render("Press Esc to stop editing, Enter to confirm") + "\n\n")
+			content.WriteString(hintStyle.Render("Press Esc to stop editing, Enter/Tab for next field") + "\n\n")
 		} else {
-			content.WriteString(hintStyle.Render("Press Enter to edit, j/k to navigate, r to run, s to save") + "\n\n")
+			content.WriteString(hintStyle.Render("Press Enter/Tab to edit, j/k to navigate, r to run, s to save") + "\n\n")
 		}
 	} else {
 		// No parameters - show hint to run directly

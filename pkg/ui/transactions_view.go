@@ -83,8 +83,8 @@ func DefaultTransactionsKeyMap() TransactionsKeyMap {
 			key.WithHelp("G/end", "go to bottom"),
 		),
 		ToggleFullDetail: key.NewBinding(
-			key.WithKeys("enter", "d"),
-			key.WithHelp("enter/d", "toggle full detail"),
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "toggle full detail"),
 		),
 		ToggleEventFields: key.NewBinding(
 			key.WithKeys("e"),
@@ -627,6 +627,12 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			}
 			return nil
 		}
+		
+		// Handle Esc to exit full detail view
+		if tv.fullDetailMode && key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
+			tv.fullDetailMode = false
+			return nil
+		}
 
 		// Handle toggle event fields
 		if key.Matches(msg, tv.keys.ToggleEventFields) {
@@ -768,7 +774,7 @@ func (tv *TransactionsView) View() string {
 	if tv.fullDetailMode {
 		hint := lipgloss.NewStyle().
 			Foreground(mutedColor).
-			Render("Press Enter or 'd' to return to table view | j/k to scroll")
+			Render("Press Tab or Esc to return to table view | j/k to scroll")
 		return hint + "\n\n" + tv.detailViewport.View()
 	}
 	
@@ -1145,7 +1151,7 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 	// Hint to view full details
 	if lineCount+2 < maxLines {
 		details.WriteString("\n")
-		details.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Render("Press Enter/d for full details"))
+		details.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Render("Press Tab for full details"))
 	}
 
 	return details.String()

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/bjartek/aether/pkg/aether"
@@ -50,11 +51,20 @@ func NewModel() Model {
 		{Name: "Logs", Content: ""},           // Content will be rendered by LogsView
 	}
 
+	// Configure help bubble with better visibility
+	helpModel := help.New()
+	helpModel.Styles.ShortKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7FF")) // Bright cyan for keys
+	helpModel.Styles.ShortDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")) // White for descriptions
+	helpModel.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")) // Gray for separators
+	helpModel.Styles.FullKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7FF")) // Bright cyan for keys
+	helpModel.Styles.FullDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")) // White for descriptions
+	helpModel.Styles.FullSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")) // Gray for separators
+
 	return Model{
 		tabs:                tabs,
 		activeTab:           0, // Start on Dashboard tab
 		keys:                DefaultKeyMap(),
-		help:                help.New(),
+		help:                helpModel,
 		showHelp:            false,
 		dashboardView:       NewDashboardView(),
 		transactionsView:    NewTransactionsView(),
@@ -190,6 +200,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
+		// Check if we're in a text input mode where we should skip global keybindings
+		inTextInput := m.isInTextInputMode()
+		
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			if m.logsView != nil {
@@ -231,10 +244,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 
 		case key.Matches(msg, m.keys.NextTab):
-			m.activeTab = (m.activeTab + 1) % len(m.tabs)
+			if !inTextInput {
+				m.activeTab = (m.activeTab + 1) % len(m.tabs)
+			}
 
 		case key.Matches(msg, m.keys.PrevTab):
-			m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
+			if !inTextInput {
+				m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
+			}
+		
+		// Number keys for direct tab navigation (only when not in text input)
+		default:
+			if !inTextInput {
+				switch msg.String() {
+				case "1":
+					m.activeTab = m.dashboardTabIndex
+					return m, nil
+				case "2":
+					m.activeTab = m.transactionsTabIndex
+					return m, nil
+				case "3":
+					m.activeTab = m.eventsTabIndex
+					return m, nil
+				case "4":
+					m.activeTab = m.runnerTabIndex
+					return m, nil
+				case "5":
+					m.activeTab = m.logsTabIndex
+					return m, nil
+				}
+			}
 		}
 	}
 
@@ -320,7 +359,9 @@ func (m Model) renderHeader() string {
 		if i == m.activeTab {
 			style = activeTabStyle
 		}
-		tabs = append(tabs, style.Render(tab.Name))
+		// Add number indicator to tab name
+		tabName := fmt.Sprintf("%d %s", i+1, tab.Name)
+		tabs = append(tabs, style.Render(tabName))
 	}
 
 	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
@@ -514,4 +555,48 @@ func (k CombinedKeyMap) FullHelp() [][]key.Binding {
 	}
 	
 	return rows
+}
+
+// isInTextInputMode checks if any view is currently in text input mode
+func (m Model) isInTextInputMode() bool {
+	// Check transactions view filter/save mode
+	if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
+		m.transactionsView.mu.RLock()
+		inFilter := m.transactionsView.filterMode
+		inSave := m.transactionsView.savingMode
+		m.transactionsView.mu.RUnlock()
+		if inFilter || inSave {
+			return true
+		}
+	}
+	
+	// Check events view filter mode
+	if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
+		m.eventsView.mu.RLock()
+		inFilter := m.eventsView.filterMode
+		m.eventsView.mu.RUnlock()
+		if inFilter {
+			return true
+		}
+	}
+	
+	// Check runner view editing/saving mode
+	if m.activeTab == m.runnerTabIndex && m.runnerView != nil {
+		m.runnerView.mu.RLock()
+		inEdit := m.runnerView.editingField
+		inSave := m.runnerView.savingConfig
+		m.runnerView.mu.RUnlock()
+		if inEdit || inSave {
+			return true
+		}
+	}
+	
+	// Check logs view filter mode
+	if m.activeTab == m.logsTabIndex && m.logsView != nil {
+		if m.logsView.filterMode {
+			return true
+		}
+	}
+	
+	return false
 }

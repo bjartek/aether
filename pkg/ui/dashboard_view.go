@@ -113,14 +113,14 @@ func (dv *DashboardView) renderGuidelines() string {
 
   Key Features:
   • Real-time transaction monitoring with detailed inspection
+  • Real-time event monitoring with detailed inspection
+  • Real-time log monitoring with auto-scroll
+  • Runner for transactions and scripts
+  • Save and run transactions and scripts with prefilled parameters
   • Service status tracking
   • Comprehensive logging with auto-scroll
 
-  Navigation:
-  • Use Tab/→ and Shift+Tab/← to switch between panes
-  • In Transactions: Press Enter or 'd' to toggle full detail view
-  • Press ? for help
-  • Press q to quit
+  Press ? to see all keybindings and navigation help
 
   Built with:
   • Overflow - Go toolkit for Flow blockchain
