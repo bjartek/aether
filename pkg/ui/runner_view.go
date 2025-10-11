@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/chroma"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/key"
@@ -50,15 +51,16 @@ type Parameter struct {
 
 // ScriptFile represents a Cadence script or transaction file
 type ScriptFile struct {
-	Name       string
-	Path       string
-	Type       ScriptType
-	Parameters []Parameter
-	Signers    int    // Number of signers needed for transactions
-	Code       string
-	Config     *flow.TransactionConfig // Pre-populated config from JSON (if loaded from .json file)
-	IsFromJSON bool                    // True if this was loaded from a JSON config file
-	Network    string                  // Network this script is specific to (emulator, testnet, mainnet, or "any")
+	Name            string
+	Path            string
+	Type            ScriptType
+	Parameters      []Parameter
+	Signers         int    // Number of signers needed for transactions
+	Code            string // Raw code
+	HighlightedCode string // Syntax-highlighted code with ANSI colors
+	Config          *flow.TransactionConfig // Pre-populated config from JSON (if loaded from .json file)
+	IsFromJSON      bool                    // True if this was loaded from a JSON config file
+	Network         string                  // Network this script is specific to (emulator, testnet, mainnet, or "any")
 }
 
 // InputField represents a form input field
@@ -281,14 +283,16 @@ func (rv *RunnerView) scanFiles() {
 				configNetwork := rv.detectNetwork(config.Name)
 				displayName := strings.TrimSuffix(filepath.Base(path), ".json") + " (config)"
 
+				codeStr := string(code)
 				script := ScriptFile{
-					Name:       displayName,
-					Path:       path,
-					Type:       sp.typ,
-					Code:       string(code),
-					Config:     config,
-					IsFromJSON: true,
-					Network:    configNetwork,
+					Name:            displayName,
+					Path:            path,
+					Type:            sp.typ,
+					Code:            codeStr,
+					HighlightedCode: chroma.HighlightCadence(codeStr),
+					Config:          config,
+					IsFromJSON:      true,
+					Network:         configNetwork,
 				}
 
 				// Parse parameters and signers from the .cdc file
@@ -317,13 +321,15 @@ func (rv *RunnerView) scanFiles() {
 				// Remove network suffix from display name if present
 				displayName := rv.removeNetworkSuffix(name)
 
+				codeStr := string(code)
 				script := ScriptFile{
-					Name:       displayName,
-					Path:       path,
-					Type:       sp.typ,
-					Code:       string(code),
-					IsFromJSON: false,
-					Network:    network,
+					Name:            displayName,
+					Path:            path,
+					Type:            sp.typ,
+					Code:            codeStr,
+					HighlightedCode: chroma.HighlightCadence(codeStr),
+					IsFromJSON:      false,
+					Network:         network,
 				}
 
 				// Parse parameters and signers
@@ -515,7 +521,12 @@ func (rv *RunnerView) updateCodeViewport(script ScriptFile) {
 	if rv.codeViewport.Width == 0 || rv.codeViewport.Height == 0 {
 		return
 	}
-	rv.codeViewport.SetContent(script.Code)
+	// Use highlighted code if available, otherwise fall back to raw code
+	content := script.HighlightedCode
+	if content == "" {
+		content = script.Code
+	}
+	rv.codeViewport.SetContent(content)
 	rv.codeViewport.GotoTop()
 }
 

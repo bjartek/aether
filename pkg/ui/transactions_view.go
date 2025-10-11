@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/chroma"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/key"
@@ -36,7 +37,8 @@ type TransactionData struct {
 	Proposer          string
 	Payer             string
 	GasLimit          uint64
-	Script            string
+	Script            string // Raw script code
+	HighlightedScript string // Syntax-highlighted script with ANSI colors
 	Arguments         []ArgumentData
 	Events            []overflow.OverflowEvent
 	Error             string
@@ -327,6 +329,7 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 
 	// Store full script - user can scroll if needed
 	script := string(ot.Script)
+	highlightedScript := chroma.HighlightCadence(script)
 
 	// Format arguments as structured data
 	args := make([]ArgumentData, 0, len(ot.Arguments))
@@ -353,20 +356,21 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 	events := ot.Events
 
 	txData := TransactionData{
-		ID:          ot.Id,
-		BlockID:     blockID,
-		BlockHeight: blockHeight,
-		Authorizers: authorizers,
-		Status:      status,
-		Proposer:    proposer,
-		Payer:       payer,
-		GasLimit:    ot.GasLimit,
-		Script:      script,
-		Arguments:   args,
-		Events:      events,
-		Error:       errMsg,
-		Timestamp:   time.Now(),
-		Index:       ot.TransactionIndex,
+		ID:                ot.Id,
+		BlockID:           blockID,
+		BlockHeight:       blockHeight,
+		Authorizers:       authorizers,
+		Status:            status,
+		Proposer:          proposer,
+		Payer:             payer,
+		GasLimit:          ot.GasLimit,
+		Script:            script,
+		HighlightedScript: highlightedScript,
+		Arguments:         args,
+		Events:            events,
+		Error:             errMsg,
+		Timestamp:         time.Now(),
+		Index:             ot.TransactionIndex,
 	}
 
 	tv.transactions = append(tv.transactions, txData)
@@ -935,7 +939,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 					}
 				}
 
-				// Display fields aligned on ->
+				// Display fields aligned on :
 				for _, key := range keys {
 					val := event.Fields[key]
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
@@ -943,7 +947,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 					// Format value using helper function
 					valStr := tv.formatEventFieldValue(val)
 
-					details.WriteString(fmt.Sprintf("     %s -> %s\n",
+					details.WriteString(fmt.Sprintf("     %s: %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))
 				}
@@ -963,7 +967,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 			}
 		}
 
-		// Display arguments aligned on ->
+		// Display arguments aligned on :
 		for _, arg := range tx.Arguments {
 			paddedName := fmt.Sprintf("%-*s", maxNameLen, arg.Name)
 
@@ -974,7 +978,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 				valStr = tv.accountRegistry.GetName(valStr)
 			}
 
-			details.WriteString(fmt.Sprintf("  %s -> %s\n",
+			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedName),
 				valueStyleDetail.Render(valStr)))
 		}
@@ -983,8 +987,13 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 
 	if tx.Script != "" {
 		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", "Script:")) + "\n")
-		// Show full script - user can scroll if needed
-		details.WriteString(valueStyleDetail.Render(tx.Script) + "\n")
+		// Show syntax-highlighted script if available, otherwise raw script
+		scriptToShow := tx.HighlightedScript
+		if scriptToShow == "" {
+			scriptToShow = tx.Script
+		}
+		// Don't wrap in valueStyleDetail since highlighted code already has colors
+		details.WriteString(scriptToShow + "\n")
 	}
 
 	return details.String()
@@ -1135,7 +1144,7 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 					// Format value using helper function
 					valStr := tv.formatEventFieldValue(val)
 
-					details.WriteString(fmt.Sprintf("     %s -> %s\n",
+					details.WriteString(fmt.Sprintf("     %s: %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))
 					lineCount++

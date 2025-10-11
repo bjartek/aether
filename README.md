@@ -64,6 +64,8 @@ run `make` to build the binary start it and run it in the example folder
   - save interactions
   - run interactions
   - show events
+  - save transactions from transactions view with network suffix
+  - syntax highlight using chroma
 
 ## Testing EVM Support with Foundry
 
@@ -154,8 +156,6 @@ When Aether is running, the following services are available:
 
 ## Planned features
 
-- [x] save transactions from transactions view with network suffix
 - [ ] show accounts
 - [ ] evm support
-- [ ] possibly fix keybindings for running tx, they are a bit clunky
 - [ ] support for running on testnet/mainnet from the latest blockheight?

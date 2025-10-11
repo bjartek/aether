@@ -566,7 +566,7 @@ func (ev *EventsView) renderEventDetailText(event EventData) string {
 			}
 		}
 
-		// Display fields aligned on ->
+		// Display fields aligned on :
 		for _, key := range keys {
 			val := event.Fields[key]
 			paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
@@ -574,7 +574,7 @@ func (ev *EventsView) renderEventDetailText(event EventData) string {
 			// Format value using helper function
 			valStr := ev.formatEventFieldValue(val)
 
-			details.WriteString(fmt.Sprintf("  %s -> %s\n",
+			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedKey),
 				valueStyleDetail.Render(valStr)))
 		}
@@ -653,7 +653,7 @@ func (ev *EventsView) renderEventDetailCondensed(event EventData, maxLines int) 
 			paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 			valStr := ev.formatEventFieldValue(val)
 
-			details.WriteString(fmt.Sprintf("  %s -> %s\n",
+			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedKey),
 				valueStyleDetail.Render(valStr)))
 			lineCount++
