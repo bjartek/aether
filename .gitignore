@@ -2,3 +2,11 @@ imports
 /aether
 aether-debug.log
 evm-gateway-db
+
+# Foundry/Solidity example artifacts
+example/sol/cache/
+example/sol/out/
+example/sol/broadcast/
+example/sol/lib/
+example/sol/.contract-address
+example/sol/.env

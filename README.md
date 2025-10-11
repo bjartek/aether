@@ -110,7 +110,7 @@ foundryup
 
 4. **Deploy the contract** to Flow EVM (running on localhost:3000):
    ```bash
-   forge create --rpc-url http://localhost:3000 \
+   forge create --chain-id 646 --rpc-url http://localhost:3000 \
      --private-key 0x0000000000000000000000000000000000000000000000000000000000000001 \
      src/Counter.sol:Counter
    ```
@@ -118,15 +118,20 @@ foundryup
 5. **Interact with the deployed contract**:
    ```bash
    # Get the current count (should be 0)
-   cast call <CONTRACT_ADDRESS> "getCount()(uint256)" --rpc-url http://localhost:3000
+   cast call <CONTRACT_ADDRESS> "getCount()(uint256)" \
+     --chain-id 646 \
+     --rpc-url http://localhost:3000
 
    # Increment the counter
    cast send <CONTRACT_ADDRESS> "increment()" \
+     --chain-id 646 \
      --rpc-url http://localhost:3000 \
      --private-key 0x0000000000000000000000000000000000000000000000000000000000000001
 
    # Get the new count (should be 1)
-   cast call <CONTRACT_ADDRESS> "getCount()(uint256)" --rpc-url http://localhost:3000
+   cast call <CONTRACT_ADDRESS> "getCount()(uint256)" \
+     --chain-id 646 \
+     --rpc-url http://localhost:3000
    ```
 
 ### Available Services and Ports
@@ -145,7 +150,7 @@ When Aether is running, the following services are available:
 - The EVM Gateway database is automatically cleaned up when you stop Aether
 - The default private key used above is for testing purposes only
 - All EVM transactions will appear in the Aether logs and transaction view
-- The EVM network ID is set to Flow EVM Testnet by default
+- The EVM network ID is set to Flow EVM Preview Net (Chain ID: **646**)
 
 ## Planned features
 

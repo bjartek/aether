@@ -156,15 +156,21 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 	err = flow.AddFclContract(o, a.FclCdc)
 	if err != nil {
 		return err
-	}
+	}	
 
 	accounts := o.GetEmulatorAccounts()
+	a.Logger.Debug().Int("filtered_accounts", len(accounts)).Interface("accounts", accounts).Msg("Filtered emulator accounts")
 
-	err = flow.AddFclAccounts(o, accounts)
-	if err != nil {
-		return err
+	if len(accounts) > 0 {
+		a.Logger.Info().Int("count", len(accounts)).Interface("accounts", accounts).Msgf("%v Adding accounts to FCL", emoji.Person)
+		err = flow.AddFclAccounts(o, accounts)
+		if err != nil {
+			return err
+		}
+		a.Logger.Info().Msgf("%v Successfully added %d accounts to FCL", emoji.Person, len(accounts))
+	} else {
+		a.Logger.Warn().Msg("No accounts to add to FCL")
 	}
-	a.Logger.Info().Dict("accounts", zerolog.Dict().Fields(accounts)).Msgf("%v Added accounts to FCL", emoji.Person)
 
 	// Use same overflow state for both .cdc and .json files
 	// Both point to same state since JSON configs reference the same transaction files

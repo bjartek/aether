@@ -3,9 +3,9 @@ package flow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
-	"os"
 
 	gethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/onflow/flow-evm-gateway/bootstrap"
@@ -20,12 +20,12 @@ import (
 )
 
 type Gateway struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	ready   chan struct{}
-	done    chan struct{}
-	dbPath  string
-	logger  zerolog.Logger
+	ctx    context.Context
+	cancel context.CancelFunc
+	ready  chan struct{}
+	done   chan struct{}
+	dbPath string
+	logger zerolog.Logger
 }
 
 // InitGateway initializes the EVM gateway with default configuration
@@ -49,14 +49,15 @@ func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gateway
 	pk := *privateKey
 
 	// Default gateway configuration matching flow-cli defaults
+	dbPath := "./evm-gateway-db"
 	cfg := gatewayConfig.Config{
-		DatabaseDir:       "./evm-gateway-db",
+		DatabaseDir:       dbPath,
 		AccessNodeHost:    "localhost:3569", // emulator gRPC port
 		RPCPort:           3000,
 		RPCHost:           "localhost",
 		InitCadenceHeight: 0,
 		FlowNetworkID:     flowGo.Emulator,
-		EVMNetworkID:      types.FlowEVMTestNetChainID,
+		EVMNetworkID:      types.FlowEVMPreviewNetChainID,                                        // Chain ID 646
 		Coinbase:          gethCommon.HexToAddress("0x0000000000000000000000000000000000000000"), // use zero address as default
 		GasPrice:          big.NewInt(1),
 		COAAddress:        flowsdk.Address(serviceAccount.Address),
@@ -95,6 +96,15 @@ func (g *Gateway) Start(cfg gatewayConfig.Config) {
 			}
 		}()
 
+		// Recover from panics
+		defer func() {
+			if r := recover(); r != nil {
+				g.logger.Error().
+					Interface("panic", r).
+					Msg("EVM gateway panicked during startup")
+			}
+		}()
+
 		closeReady := func() {
 			select {
 			case <-g.ready:
@@ -103,14 +113,21 @@ func (g *Gateway) Start(cfg gatewayConfig.Config) {
 			}
 		}
 
+		g.logger.Info().Msg("Starting EVM gateway bootstrap...")
 		err := bootstrap.Run(
 			g.ctx,
 			cfg,
 			closeReady,
 		)
 		if err != nil && !errors.Is(err, context.Canceled) {
-			// Error logging is handled by the gateway's internal logger
-			// which is configured via cfg.LogWriter and cfg.LogLevel
+			g.logger.Error().
+				Err(err).
+				Str("database_dir", cfg.DatabaseDir).
+				Str("rpc_host", fmt.Sprintf("%s:%d", cfg.RPCHost, cfg.RPCPort)).
+				Str("access_node", cfg.AccessNodeHost).
+				Msg("EVM gateway stopped with error")
+		} else if errors.Is(err, context.Canceled) {
+			g.logger.Info().Msg("EVM gateway stopped (context canceled)")
 		}
 	}()
 }
@@ -128,13 +145,4 @@ func (g *Gateway) Stop() {
 	// Wait for gateway to fully stop
 	<-g.done
 
-	// Clean up the database directory
-	if g.dbPath != "" {
-		g.logger.Info().Str("path", g.dbPath).Msg("Cleaning up EVM gateway database")
-		if err := os.RemoveAll(g.dbPath); err != nil {
-			g.logger.Warn().Err(err).Str("path", g.dbPath).Msg("Failed to remove EVM gateway database")
-		} else {
-			g.logger.Info().Str("path", g.dbPath).Msg("Successfully removed EVM gateway database")
-		}
-	}
 }
