@@ -57,7 +57,7 @@ func main() {
 	aetherLogger := logs.WithComponent(logger, "aether")
 	emulatorLogger := logs.WithComponent(logger, "emulator")
 	walletLogger := logs.WithComponent(logger, "dev-wallet")
-	//_ := logs.WithComponent(logger, "evm-gateway")
+	gatewayLogger := logs.WithComponent(logger, "evm-gateway")
 
 	if *logFile != "" {
 		aetherLogger.Info().Str("file", *logFile).Msg("Logging to file for debugging")
@@ -69,23 +69,23 @@ func main() {
 		panic(err2)
 	}
 
-	/*
-		// Determine log level for gateway
-		var gatewayLogLevel zerolog.Level
-		if *verbose {
-			gatewayLogLevel = zerolog.DebugLevel
-		} else {
-			gatewayLogLevel = zerolog.InfoLevel
-		}
+	// Determine log level for gateway
+	var gatewayLogLevel zerolog.Level
+	if *verbose {
+		gatewayLogLevel = zerolog.DebugLevel
+	} else {
+		gatewayLogLevel = zerolog.InfoLevel
+	}
 
-			gateway, gatewayCfg, err3 := flow.InitGateway(logWriter, gatewayLogLevel)
-			if err3 != nil {
-				aetherLogger.Error().Err(err3).Msg("Failed to initialize EVM gateway")
-				panic(err3)
-			}
-	*/
+	aetherLogger.Info().Msg("Initializing EVM gateway...")
+	gateway, gatewayCfg, err3 := flow.InitGateway(logWriter, gatewayLogLevel)
+	if err3 != nil {
+		aetherLogger.Error().Err(err3).Msg("Failed to initialize EVM gateway")
+		panic(err3)
+	}
+	aetherLogger.Info().Msg("EVM gateway initialization complete")
 
-	aetherLogger.Info().Msg("Initialization complete")
+	aetherLogger.Info().Msg("All initialization complete")
 
 	// Channel to signal when emulator is ready
 	emulatorReady := make(chan struct{})
@@ -123,21 +123,16 @@ func main() {
 		tea.WithAltScreen(), // Use alternate screen buffer
 	)
 
-	/*
-
-		// commented out for now, does not work
-		// Start EVM gateway after emulator is ready
-
-		go func() {
-			<-emulatorReady
-			// Wait a few seconds for emulator to fully initialize
-			time.Sleep(30 * time.Second)
-			gatewayLogger.Info().Msg("Starting EVM gateway...")
-			gateway.Start(gatewayCfg)
-			<-gateway.Ready()
-			gatewayLogger.Info().Msg("EVM gateway is ready")
-		}()
-	*/
+	// Start EVM gateway after emulator is ready
+	go func() {
+		gatewayLogger.Info().Msg("Waiting for emulator to be ready...")
+		<-emulatorReady
+		// Wait a few seconds for emulator to fully initialize
+		time.Sleep(3 * time.Second)
+		gatewayLogger.Info().Msg("Starting EVM gateway bootstrap...")
+		gateway.Start(gatewayCfg)
+		<-gateway.Ready()
+	}()
 
 	// Start aether server after emulator is ready with tea program
 	go func() {
@@ -157,9 +152,16 @@ func main() {
 	}
 
 	// Clean up
+	aetherLogger.Info().Msg("Shutting down...")
 	logWriter.Close()
-	//	gateway.Stop()
+	gatewayLogger.Info().Msg("Stopping EVM gateway...")
+	gateway.Stop()
+	gatewayLogger.Info().Msg("EVM gateway stopped")
+	emulatorLogger.Info().Msg("Stopping emulator...")
 	emu.Stop()
+	walletLogger.Info().Msg("Stopping dev wallet...")
 	dw.Stop()
+	aetherLogger.Info().Msg("Stopping aether server...")
 	a.Stop()
+	aetherLogger.Info().Msg("All services stopped cleanly")
 }

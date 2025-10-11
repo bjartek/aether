@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"os"
 
 	gethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/onflow/flow-evm-gateway/bootstrap"
@@ -50,12 +51,26 @@ func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gateway
 
 	// Default gateway configuration matching flow-cli defaults
 	dbPath := "./evm-gateway-db"
+	
+	// Create logger for gateway operations
+	logger := zerolog.New(logWriter).With().Str("component", "evm-gateway").Timestamp().Logger().Level(logLevel)
+	
+	// Clean up old database to ensure fresh start
+	if _, err := os.Stat(dbPath); err == nil {
+		logger.Info().Str("path", dbPath).Msg("Removing old EVM gateway database")
+		if err := os.RemoveAll(dbPath); err != nil {
+			logger.Warn().Err(err).Str("path", dbPath).Msg("Failed to remove old database directory")
+		} else {
+			logger.Info().Str("path", dbPath).Msg("Old database removed successfully")
+		}
+	}
+	
 	cfg := gatewayConfig.Config{
 		DatabaseDir:       dbPath,
 		AccessNodeHost:    "localhost:3569", // emulator gRPC port
 		RPCPort:           3000,
 		RPCHost:           "localhost",
-		InitCadenceHeight: 0,
+		InitCadenceHeight: 1,
 		FlowNetworkID:     flowGo.Emulator,
 		EVMNetworkID:      types.FlowEVMPreviewNetChainID,                                        // Chain ID 646
 		Coinbase:          gethCommon.HexToAddress("0x0000000000000000000000000000000000000000"), // use zero address as default
@@ -67,9 +82,6 @@ func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gateway
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-
-	// Create logger for gateway cleanup operations
-	logger := zerolog.New(logWriter).With().Str("component", "evm-gateway").Timestamp().Logger().Level(logLevel)
 
 	gateway := &Gateway{
 		ctx:    ctx,
@@ -87,21 +99,23 @@ func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gateway
 func (g *Gateway) Start(cfg gatewayConfig.Config) {
 	go func() {
 		defer close(g.done)
+
+		// CRITICAL: Recover from panics FIRST before any other defer
+		// This must be the outermost defer to catch everything
+		defer func() {
+			if r := recover(); r != nil {
+				g.logger.Error().
+					Interface("panic", r).
+					Msg("RECOVERED: EVM gateway panicked - continuing aether execution")
+			}
+		}()
+
 		defer func() {
 			// Ensure ready is closed even on error
 			select {
 			case <-g.ready:
 			default:
 				close(g.ready)
-			}
-		}()
-
-		// Recover from panics
-		defer func() {
-			if r := recover(); r != nil {
-				g.logger.Error().
-					Interface("panic", r).
-					Msg("EVM gateway panicked during startup")
 			}
 		}()
 
@@ -125,9 +139,11 @@ func (g *Gateway) Start(cfg gatewayConfig.Config) {
 				Str("database_dir", cfg.DatabaseDir).
 				Str("rpc_host", fmt.Sprintf("%s:%d", cfg.RPCHost, cfg.RPCPort)).
 				Str("access_node", cfg.AccessNodeHost).
-				Msg("EVM gateway stopped with error")
+				Msg("EVM gateway stopped with error - aether continues running")
 		} else if errors.Is(err, context.Canceled) {
 			g.logger.Info().Msg("EVM gateway stopped (context canceled)")
+		} else if err == nil {
+			g.logger.Info().Msg("EVM gateway stopped successfully")
 		}
 	}()
 }

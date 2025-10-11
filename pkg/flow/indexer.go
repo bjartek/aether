@@ -74,11 +74,13 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 				// the reason we just cannot process here is that the latestblock might not be the next block we should process
 				continue
 			} else {
+				logg.Debug().Msg("we are on the block")
 				block = latestKnownBlock
 			}
 			readDur := time.Since(start)
 			logg.Debug().Uint64("block", block.Height).Uint64("latestBlock", latestKnownBlock.Height).Float64("readDur", readDur.Seconds()).Msg("block read")
 
+			logg.Debug().Uint64("height", block.Height).Str("blockID", block.ID.String()).Msg("Fetching transactions for block...")
 			transactions, err := GetOverflowTransactionsForBlockID(ctx, o, block.ID, logg)
 			if err != nil {
 				if strings.Contains(err.Error(), "context canceled") {
@@ -130,32 +132,32 @@ func StreamTransactions(ctx context.Context, o *overflow.OverflowState, poll tim
 func GetOverflowTransactionsForBlockID(ctx context.Context, o overflow.OverflowClient, id flow.Identifier, logg zerolog.Logger) ([]overflow.OverflowTransaction, error) {
 	transactions := []overflow.OverflowTransaction{}
 
+	logg.Debug().Str("blockId", id.String()).Msg("Fetching transactions for block")
 	tx, txR, err := o.GetTransactionsByBlockId(ctx, id)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting transaction results")
 	}
 
-	logg.Debug().Str("blockId", id.String()).Int("tx", len(tx)).Int("txR", len(txR)).Msg("Fetched tx")
+	logg.Info().Str("blockId", id.String()).Int("tx", len(tx)).Int("txR", len(txR)).Msg("Fetched tx")
 	for i, rp := range txR {
 		logg.Debug().Int("txIndex", i).Msg("Processing transaction")
 		t := *tx[i]
 		r := *rp
 
-		logg = logg.With().Str("txid", r.TransactionID.Hex()).Logger()
+		txLogger := logg.With().Str("txid", r.TransactionID.Hex()).Logger()
 		ot, err := o.CreateOverflowTransaction(id.String(), r, t, i)
 		if err != nil {
-			logg.Error().Err(err).Msg("Failed to create overflow transaction")
-			panic(err)
+			txLogger.Error().Err(err).Msg("Failed to create overflow transaction - skipping this transaction")
+			// Don't panic - just skip this transaction and continue processing
+			continue
 		}
 
 		if ot.ProposalKey.Address.String() == "0x0000000000000000" && len(ot.Events) == 0 {
-			logg.Debug().Msg("skipping empty scheudle tx process")
+			txLogger.Info().Msg("skipping empty schedule tx process")
 			continue
 		}
 		transactions = append(transactions, *ot)
 	}
-
-	logg.Debug().Int("totalTransactions", len(transactions)).Msg("Completed processing all transactions")
 
 	return transactions, nil
 }
