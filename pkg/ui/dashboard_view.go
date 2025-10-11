@@ -44,8 +44,12 @@ type DashboardView struct {
 func NewDashboardView() *DashboardView {
 	return &DashboardView{
 		services: []ServiceInfo{
-			{Name: "Flow Emulator", Port: "3569", Status: "Running"},
+			{Name: "Flow Emulator (gRPC)", Port: "3569", Status: "Running"},
+			{Name: "Flow Emulator (REST)", Port: "8888", Status: "Running"},
+			{Name: "Flow Emulator (Admin)", Port: "8080", Status: "Running"},
+			{Name: "Flow Emulator (Debugger)", Port: "2345", Status: "Running"},
 			{Name: "Dev Wallet", Port: "8701", Status: "Running"},
+			{Name: "EVM Gateway (JSON-RPC)", Port: "3000", Status: "Running"},
 		},
 		ready: true,
 	}

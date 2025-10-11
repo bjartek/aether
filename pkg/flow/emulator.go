@@ -64,8 +64,8 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 		StorageLimitEnabled:         true,
 		StorageMBPerFLOW:            fvm.DefaultStorageMBPerFLOW,
 		MinimumStorageReservation:   fvm.DefaultMinimumStorageReservation,
-		TransactionFeesEnabled:      false,
-		WithContracts:               false,
+		TransactionFeesEnabled:      true,
+		WithContracts:               true,
 		SkipTransactionValidation:   false,
 		SimpleAddressesEnabled:      false,
 		Host:                        "",
@@ -79,6 +79,8 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 		CheckpointPath:              "",
 		StateHash:                   "",
 		ComputationReportingEnabled: false,
+		SetupEVMEnabled:             true,
+		SetupVMBridgeEnabled:        true,
 	}
 
 	emu := server.NewEmulatorServer(logger, serverConf)
