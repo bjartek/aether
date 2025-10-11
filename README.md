@@ -79,80 +79,41 @@ curl -L https://foundry.paradigm.xyz | bash
 foundryup
 ```
 
-### Quick Start: Deploy a Counter Contract
+### EVM notes
 
-1. **Start Aether** in your Flow project directory:
+1. **Deploy the contract** to Flow EVM (running on localhost:3000):
    ```bash
-   aether
+   forge script script/Counter.s.sol:CounterScript \
+        --rpc-url http://localhost:8545 \
+        --slow \
+        -vvv \
+        --legacy \
+        --broadcast \
+        --via-ir \
+        -i 1
    ```
+   note down the address that is created, i think this is always 0xC7f2Cf4845C6db0e1a1e91ED41Bcd0FcC1b0E141
 
-2. **Create a new Foundry project** in a separate terminal:
-   ```bash
-   mkdir evm-test && cd evm-test
-   forge init --no-git
-   ```
-
-3. **Create a simple Counter contract** at `src/Counter.sol`:
-   ```solidity
-   // SPDX-License-Identifier: MIT
-   pragma solidity ^0.8.0;
-
-   contract Counter {
-       uint256 public count;
-
-       function increment() public {
-           count += 1;
-       }
-
-       function getCount() public view returns (uint256) {
-           return count;
-       }
-   }
-   ```
-
-4. **Deploy the contract** to Flow EVM (running on localhost:3000):
-   ```bash
-   forge create --chain-id 646 --rpc-url http://localhost:3000 \
-     --private-key 0x0000000000000000000000000000000000000000000000000000000000000001 \
-     src/Counter.sol:Counter
-   ```
-
-5. **Interact with the deployed contract**:
+2. **Interact with the deployed contract**:
    ```bash
    # Get the current count (should be 0)
-   cast call <CONTRACT_ADDRESS> "getCount()(uint256)" \
+   cast call 0xC7f2Cf4845C6db0e1a1e91ED41Bcd0FcC1b0E141 "getCount()(uint256)" \
      --chain-id 646 \
-     --rpc-url http://localhost:3000
+     --rpc-url http://localhost:8545
+
+   #this fails for me saying that there is no contract here
 
    # Increment the counter
-   cast send <CONTRACT_ADDRESS> "increment()" \
+   cast send  0xC7f2Cf4845C6db0e1a1e91ED41Bcd0FcC1b0E141 "increment()" \
      --chain-id 646 \
-     --rpc-url http://localhost:3000 \
-     --private-key 0x0000000000000000000000000000000000000000000000000000000000000001
+     --rpc-url http://localhost:8545 \
+     --private-key 0x2619878f0e2ff438d17835c2a4561cb87b4d24d72d12ec34569acd0dd4af7c21
 
    # Get the new count (should be 1)
-   cast call <CONTRACT_ADDRESS> "getCount()(uint256)" \
+   cast call 0xC7f2Cf4845C6db0e1a1e91ED41Bcd0FcC1b0E141 "getCount()(uint256)" \
      --chain-id 646 \
-     --rpc-url http://localhost:3000
+     --rpc-url http://localhost:8545
    ```
-
-### Available Services and Ports
-
-When Aether is running, the following services are available:
-
-- **Flow Emulator (gRPC)**: `localhost:3569` - Flow Access Node API
-- **Flow Emulator (REST)**: `localhost:8888` - Flow REST API
-- **Flow Emulator (Admin)**: `localhost:8080` - Admin API
-- **Flow Emulator (Debugger)**: `localhost:2345` - Debug Adapter Protocol
-- **Dev Wallet**: `localhost:8701` - FCL Dev Wallet
-- **EVM Gateway (JSON-RPC)**: `localhost:3000` - Ethereum JSON-RPC API
-
-### Notes
-
-- The EVM Gateway database is automatically cleaned up when you stop Aether
-- The default private key used above is for testing purposes only
-- All EVM transactions will appear in the Aether logs and transaction view
-- The EVM network ID is set to Flow EVM Preview Net (Chain ID: **646**)
 
 ## Planned features
 

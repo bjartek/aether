@@ -8,10 +8,11 @@ import (
 	"math/big"
 	"os"
 
-	gethCommon "github.com/ethereum/go-ethereum/common"
+	gethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/onflow/flow-evm-gateway/bootstrap"
 	gatewayConfig "github.com/onflow/flow-evm-gateway/config"
 	flowsdk "github.com/onflow/flow-go-sdk"
+	flowCrypto "github.com/onflow/flow-go-sdk/crypto"
 	"github.com/onflow/flow-go/fvm/evm/types"
 	flowGo "github.com/onflow/flow-go/model/flow"
 	"github.com/onflow/flowkit/v2"
@@ -42,19 +43,38 @@ func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gateway
 		return nil, gatewayConfig.Config{}, err
 	}
 
-	privateKey, err := serviceAccount.Key.PrivateKey()
+	// Use the standard EVM gateway private key (same as flow-cli)
+	// This key is used for both COA operations and wallet API
+	gatewayKeyHex := "2619878f0e2ff438d17835c2a4561cb87b4d24d72d12ec34569acd0dd4af7c21"
+
+	// Parse as ECDSA private key for wallet
+	evmPrivateKey, err := gethCrypto.HexToECDSA(gatewayKeyHex)
 	if err != nil {
-		return nil, gatewayConfig.Config{}, err
+		return nil, gatewayConfig.Config{}, fmt.Errorf("failed to parse EVM private key: %w", err)
 	}
 
-	pk := *privateKey
+	// Parse as Flow private key for COA
+	flowPrivateKeyBytes, err := gethCrypto.HexToECDSA(gatewayKeyHex)
+	if err != nil {
+		return nil, gatewayConfig.Config{}, fmt.Errorf("failed to parse Flow private key: %w", err)
+	}
+
+	// Convert ECDSA key to Flow crypto format
+	flowPrivateKey, err := flowCrypto.DecodePrivateKeyHex(flowCrypto.ECDSA_P256, gatewayKeyHex)
+	if err != nil {
+		return nil, gatewayConfig.Config{}, fmt.Errorf("failed to decode Flow private key: %w", err)
+	}
+
+	// Derive the EVM address from the private key
+	evmAddress := gethCrypto.PubkeyToAddress(flowPrivateKeyBytes.PublicKey)
 
 	// Default gateway configuration matching flow-cli defaults
 	dbPath := "./evm-gateway-db"
-	
+
 	// Create logger for gateway operations
 	logger := zerolog.New(logWriter).With().Str("component", "evm-gateway").Timestamp().Logger().Level(logLevel)
-	
+	logger.Info().Str("evmAddress", evmAddress.Hex()).Msg("Using EVM gateway key")
+
 	// Clean up old database to ensure fresh start
 	if _, err := os.Stat(dbPath); err == nil {
 		logger.Info().Str("path", dbPath).Msg("Removing old EVM gateway database")
@@ -64,21 +84,26 @@ func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gateway
 			logger.Info().Str("path", dbPath).Msg("Old database removed successfully")
 		}
 	}
-	
+
 	cfg := gatewayConfig.Config{
 		DatabaseDir:       dbPath,
 		AccessNodeHost:    "localhost:3569", // emulator gRPC port
-		RPCPort:           3000,
+		RPCPort:           8545,
 		RPCHost:           "localhost",
 		InitCadenceHeight: 1,
 		FlowNetworkID:     flowGo.Emulator,
-		EVMNetworkID:      types.FlowEVMPreviewNetChainID,                                        // Chain ID 646
-		Coinbase:          gethCommon.HexToAddress("0x0000000000000000000000000000000000000000"), // use zero address as default
+		EVMNetworkID:      types.FlowEVMPreviewNetChainID, // Chain ID 646
+		Coinbase:          evmAddress,                     // Use derived address from private key
+		WalletEnabled:     true,
+		WalletKey:         evmPrivateKey, // ECDSA private key for wallet API
 		GasPrice:          big.NewInt(1),
 		COAAddress:        flowsdk.Address(serviceAccount.Address),
-		COAKey:            pk,
+		COAKey:            flowPrivateKey, // Flow private key for COA operations
 		LogWriter:         logWriter,
 		LogLevel:          logLevel,
+		TxStateValidation: "local-index",
+		ProfilerEnabled:   true,
+		ProfilerPort:      6060,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

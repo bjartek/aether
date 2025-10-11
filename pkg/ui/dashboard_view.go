@@ -49,7 +49,8 @@ func NewDashboardView() *DashboardView {
 			{Name: "Flow Emulator (Admin)", Port: "8080", Status: "Running"},
 			{Name: "Flow Emulator (Debugger)", Port: "2345", Status: "Running"},
 			{Name: "Dev Wallet", Port: "8701", Status: "Running"},
-			{Name: "EVM Gateway (JSON-RPC)", Port: "3000", Status: "Running"},
+			{Name: "EVM Gateway (JSON-RPC)", Port: "8545", Status: "Running"},
+			{Name: "EVM Gateway (Profile)", Port: "6060", Status: "Running"},
 		},
 		ready: true,
 	}
