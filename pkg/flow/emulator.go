@@ -12,11 +12,9 @@ import (
 	flowgo "github.com/onflow/flow-go/model/flow"
 	"github.com/rs/zerolog"
 
-	"github.com/onflow/flow-emulator/cmd/emulator/start"
 	"github.com/onflow/flow-emulator/server"
 	"github.com/onflow/flowkit/v2"
 	"github.com/onflow/flowkit/v2/config"
-	"github.com/psiemens/sconfig"
 	"github.com/spf13/afero"
 )
 
@@ -43,55 +41,44 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 
 	pk := *privateKey
 
-	var conf start.Config
-
-	// we use sconfig to bind with as they do in flow-emulator
-	err = sconfig.New(&conf).
-		FromEnvironment("AETHER").
-		Parse()
-	if err != nil {
-		panic(err)
-	}
-
 	serverConf := &server.Config{
-		GRPCPort:                    conf.Port,
-		GRPCDebug:                   true,
-		AdminPort:                   conf.AdminPort,
-		DebuggerPort:                conf.DebuggerPort,
-		RESTPort:                    conf.RestPort,
-		RESTDebug:                   true,
+		GRPCPort:                    3569,
+		GRPCDebug:                   false,
+		AdminPort:                   8080,
+		DebuggerPort:                2345,
+		RESTPort:                    8888,
+		RESTDebug:                   false,
 		HTTPHeaders:                 nil,
 		BlockTime:                   1 * time.Second,
 		ServicePublicKey:            pk.PublicKey(),
 		ServicePrivateKey:           pk,
 		ServiceKeySigAlgo:           serviceAccount.Key.SigAlgo(),
 		ServiceKeyHashAlgo:          serviceAccount.Key.HashAlgo(),
-		Persist:                     conf.Persist,
-		Snapshot:                    conf.Snapshot,
-		DBPath:                      conf.DBPath,
+		Persist:                     false,
+		Snapshot:                    false,
+		DBPath:                      "./flowdb",
 		GenesisTokenSupply:          cadence.UFix64(1000000000.0),
-		TransactionMaxGasLimit:      uint64(conf.TransactionMaxGasLimit),
-		ScriptGasLimit:              uint64(conf.ScriptGasLimit),
-		TransactionExpiry:           uint(conf.TransactionExpiry),
-		StorageLimitEnabled:         conf.StorageLimitEnabled,
+		TransactionMaxGasLimit:      9999,
+		ScriptGasLimit:              100000,
+		TransactionExpiry:           10,
+		StorageLimitEnabled:         true,
 		StorageMBPerFLOW:            fvm.DefaultStorageMBPerFLOW,
 		MinimumStorageReservation:   fvm.DefaultMinimumStorageReservation,
-		TransactionFeesEnabled:      true,
-		WithContracts:               conf.Contracts,
-		SkipTransactionValidation:   conf.SkipTxValidation,
-		SimpleAddressesEnabled:      conf.SimpleAddresses,
-		Host:                        conf.Host,
+		TransactionFeesEnabled:      false,
+		WithContracts:               false,
+		SkipTransactionValidation:   false,
+		SimpleAddressesEnabled:      false,
+		Host:                        "",
 		ChainID:                     flowgo.Emulator,
-		RedisURL:                    conf.RedisURL,
-		ContractRemovalEnabled:      conf.ContractRemovalEnabled,
-		SqliteURL:                   conf.SqliteURL,
-		CoverageReportingEnabled:    conf.CoverageReportingEnabled,
-		StartBlockHeight:            conf.StartBlockHeight,
-		RPCHost:                     conf.RPCHost,
-		CheckpointPath:              conf.CheckpointPath,
-		StateHash:                   conf.StateHash,
-		ComputationReportingEnabled: conf.ComputationReportingEnabled,
-		//ScheduledTransactionsEnabled: true, // not sure why this deploys it 2 times
+		RedisURL:                    "",
+		ContractRemovalEnabled:      true,
+		SqliteURL:                   "",
+		CoverageReportingEnabled:    false,
+		StartBlockHeight:            0,
+		RPCHost:                     "",
+		CheckpointPath:              "",
+		StateHash:                   "",
+		ComputationReportingEnabled: false,
 	}
 
 	emu := server.NewEmulatorServer(logger, serverConf)
