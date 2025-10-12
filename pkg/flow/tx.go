@@ -53,7 +53,11 @@ func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *over
 			// Execute transaction using jsonOverflow state
 			res := jsonOverflow.Tx(config.Name, opts...)
 			if res.Err != nil {
-				logger.Error().Err(res.Err).Str("config", info.Name()).Str("transaction", config.Name).Msg("Failed to run transaction from config")
+				logger.Error().
+					Str("config", info.Name()).
+					Str("transaction", config.Name).
+					Str("error", res.Err.Error()).
+					Msg("Failed to run init transaction from config")
 				return res.Err
 			}
 			
@@ -66,6 +70,10 @@ func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *over
 			fileName := strings.TrimSuffix(info.Name(), ".cdc")
 			res := cdcOverflow.Tx(fileName, overflow.WithAutoSigner())
 			if res.Err != nil {
+				logger.Error().
+					Str("file", fileName).
+					Str("error", res.Err.Error()).
+					Msg("Failed to run init transaction from .cdc file")
 				return res.Err
 			}
 			logger.Info().Str("file", fileName).Msgf("%v Ran init transaction", emoji.Scroll)

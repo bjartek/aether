@@ -476,7 +476,8 @@ func (rv *RunnerView) setupInputFields(script ScriptFile) {
 		// Pre-populate from JSON config if available
 		if script.Config != nil && script.Config.Arguments != nil {
 			if val, ok := script.Config.Arguments[param.Name]; ok {
-				ti.SetValue(val)
+				// Convert interface{} to string for display
+				ti.SetValue(fmt.Sprintf("%v", val))
 			}
 		}
 
@@ -684,7 +685,7 @@ func (rv *RunnerView) saveCurrentConfig(filename string, script ScriptFile) erro
 	config := &flow.TransactionConfig{
 		Name:      script.Name,
 		Signers:   make([]string, 0),
-		Arguments: make(map[string]string),
+		Arguments: make(map[string]interface{}),
 	}
 
 	// Collect values from input fields

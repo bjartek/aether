@@ -79,6 +79,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 
 	// Only create accounts in local mode
 	if a.Network == "" {
+		a.Logger.Info().Str("network", o.Network.Name).Msg("emulator")
 		_, err := o.CreateAccountsE(ctx)
 		if err != nil {
 			return err
@@ -123,7 +124,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 	// Determine starting block height and polling interval based on network mode
 	var startHeight uint64
 	var pollInterval time.Duration
-	
+
 	if a.Network == "" {
 		// Local emulator mode - start from block 1
 		startHeight = 1
@@ -136,14 +137,14 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			return err
 		}
 		startHeight = latestBlock.Height
-		
+
 		// Use 800ms polling for mainnet, 200ms for testnet
 		if a.Network == "mainnet" {
 			pollInterval = 800 * time.Millisecond
 		} else {
 			pollInterval = 200 * time.Millisecond
 		}
-		
+
 		a.Logger.Info().
 			Str("network", a.Network).
 			Uint64("startHeight", startHeight).

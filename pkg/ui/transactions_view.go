@@ -720,7 +720,7 @@ func (tv *TransactionsView) saveTransaction(filename string, tx TransactionData)
 	config := &flow.TransactionConfig{
 		Name:      filename + ".emulator",
 		Signers:   []string{}, // Leave empty as requested
-		Arguments: make(map[string]string),
+		Arguments: make(map[string]interface{}),
 	}
 
 	// Populate arguments from transaction data
