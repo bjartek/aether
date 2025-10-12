@@ -11,7 +11,7 @@ import (
 // AccountRegistry maintains a mapping of addresses to human-friendly names
 type AccountRegistry struct {
 	mu           sync.RWMutex
-	addressToName map[string]string
+addressToName map[string]string
 }
 
 // NewAccountRegistry creates a new account registry from overflow state
@@ -131,4 +131,17 @@ func (r *AccountRegistry) FormatAddressShort(address string, startLen, endLen in
 		return name + " (" + truncated + ")"
 	}
 	return displayAddr
+}
+
+// GetAllNames returns a sorted list of all registered account names
+func (r *AccountRegistry) GetAllNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	names := make([]string, 0, len(r.addressToName))
+	for _, name := range r.addressToName {
+		names = append(names, name)
+	}
+	
+	return names
 }

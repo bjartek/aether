@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -401,8 +402,10 @@ func (rv *RunnerView) parseScriptFile(script *ScriptFile) {
 		return
 	}
 
-	// Check if it's a transaction
-	for _, txd := range program.TransactionDeclarations() {
+	// Check if it's a transaction (Cadence files can only have one transaction declaration)
+	txDeclarations := program.TransactionDeclarations()
+	if len(txDeclarations) > 0 {
+		txd := txDeclarations[0]
 		// Parse transaction parameters
 		if txd.ParameterList != nil {
 			script.Parameters = rv.parseParameterList(txd.ParameterList)
@@ -542,11 +545,9 @@ func (rv *RunnerView) SetAccountRegistry(registry *aether.AccountRegistry) {
 
 	rv.accountRegistry = registry
 
-	// Update available signers list
+	// Update available signers list from registry
 	if registry != nil {
-		// Get all account names from registry
-		// Note: We'd need a method to get all names, for now we'll populate as we go
-		rv.availableSigners = []string{"alice", "bob", "charlie"} // TODO: Get from registry
+		rv.availableSigners = registry.GetAllNames()
 	}
 }
 
@@ -646,7 +647,32 @@ func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) 
 
 	b.WriteString("✓ Script executed successfully\n\n")
 	b.WriteString("Output:\n")
-	b.WriteString(fmt.Sprintf("%v", result.Output))
+	
+	// Try to parse output as JSON and pretty-print it
+	outputStr := fmt.Sprintf("%v", result.Output)
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal([]byte(outputStr), &jsonData); err == nil {
+		// Successfully parsed as JSON, pretty-print it
+		prettyJSON, err := json.MarshalIndent(jsonData, "", "  ")
+		if err == nil {
+			b.WriteString(string(prettyJSON))
+			return b.String()
+		}
+	}
+	
+	// Try parsing as JSON array
+	var jsonArray []interface{}
+	if err := json.Unmarshal([]byte(outputStr), &jsonArray); err == nil {
+		// Successfully parsed as JSON array, pretty-print it
+		prettyJSON, err := json.MarshalIndent(jsonArray, "", "  ")
+		if err == nil {
+			b.WriteString(string(prettyJSON))
+			return b.String()
+		}
+	}
+	
+	// Not valid JSON or failed to marshal, show as-is
+	b.WriteString(outputStr)
 
 	return b.String()
 }
