@@ -66,6 +66,7 @@ run `make` to build the binary start it and run it in the example folder
   - show events
   - save transactions from transactions view with network suffix
   - syntax highlight using chroma
+  -  support for running on testnet/mainnet from the latest blockheight?
 
 ## Testing EVM Support with Foundry
 
@@ -80,7 +81,8 @@ foundryup
 ```
 
 ### EVM notes
-
+ This does not work atm, debuging with mpeter 
+ 
 1. **Deploy the contract** to Flow EVM (running on localhost:3000):
    ```bash
    forge script script/Counter.s.sol:CounterScript \
@@ -119,4 +121,3 @@ foundryup
 
 - [ ] show accounts
 - [ ] evm support
-- [ ] support for running on testnet/mainnet from the latest blockheight?

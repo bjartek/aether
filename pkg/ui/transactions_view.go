@@ -176,7 +176,7 @@ func NewTransactionsView() *TransactionsView {
 	saveInput.CharLimit = 50
 	saveInput.Width = 40
 
-	const maxTransactions = 100
+	const maxTransactions = 10000
 	
 	return &TransactionsView{
 		table:            t,

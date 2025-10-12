@@ -133,7 +133,7 @@ func NewEventsView() *EventsView {
 	filterInput.CharLimit = 50
 	filterInput.Width = 50
 
-	const maxEvents = 1000
+	const maxEvents = 10000
 
 	return &EventsView{
 		table:            t,

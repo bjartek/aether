@@ -20,6 +20,7 @@ type Aether struct {
 	FclCdc          []byte
 	Overflow        *overflow.OverflowState
 	AccountRegistry *AccountRegistry
+	Network         string // "testnet", "mainnet", or empty for local emulator
 }
 
 // BlockTransactionMsg is sent when a transaction is processed
@@ -55,16 +56,33 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		return fmt.Errorf("neither %q nor %q exists", path1, path2)
 	}
 
-	o := overflow.Overflow(
-		overflow.WithExistingEmulator(),
-		overflow.WithLogNone(),
-		overflow.WithReturnErrors(),
-		overflow.WithTransactionFolderName("aether"),
-		overflow.WithBasePath(basePath))
+	// Initialize overflow based on network mode
+	var o *overflow.OverflowState
+	if a.Network == "" {
+		// Local emulator mode
+		o = overflow.Overflow(
+			overflow.WithExistingEmulator(),
+			overflow.WithLogNone(),
+			overflow.WithReturnErrors(),
+			overflow.WithTransactionFolderName("aether"),
+			overflow.WithBasePath(basePath))
+	} else {
+		// Network mode (testnet or mainnet)
+		a.Logger.Info().Str("network", a.Network).Msg("Initializing overflow for network")
+		o = overflow.Overflow(
+			overflow.WithNetwork(a.Network),
+			overflow.WithLogNone(),
+			overflow.WithReturnErrors(),
+			overflow.WithTransactionFolderName("aether"),
+			overflow.WithBasePath(basePath))
+	}
 
-	_, err := o.CreateAccountsE(ctx)
-	if err != nil {
-		return err
+	// Only create accounts in local mode
+	if a.Network == "" {
+		_, err := o.CreateAccountsE(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	a.Overflow = o
 
@@ -76,11 +94,21 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		Interface("registry", dump).
 		Msg("Initialized account registry")
 
-	oR := overflow.Overflow(
-		overflow.WithExistingEmulator(),
-		overflow.WithLogNone(),
-		overflow.WithReturnErrors(),
-		overflow.WithBasePath(basePath))
+	// Create second overflow instance for runner view
+	var oR *overflow.OverflowState
+	if a.Network == "" {
+		oR = overflow.Overflow(
+			overflow.WithExistingEmulator(),
+			overflow.WithLogNone(),
+			overflow.WithReturnErrors(),
+			overflow.WithBasePath(basePath))
+	} else {
+		oR = overflow.Overflow(
+			overflow.WithNetwork(a.Network),
+			overflow.WithLogNone(),
+			overflow.WithReturnErrors(),
+			overflow.WithBasePath(basePath))
+	}
 
 	// Send overflow ready message to UI
 	if teaProgram != nil {
@@ -92,10 +120,41 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 
 	overflowChannel := make(chan flow.BlockResult)
 
+	// Determine starting block height and polling interval based on network mode
+	var startHeight uint64
+	var pollInterval time.Duration
+	
+	if a.Network == "" {
+		// Local emulator mode - start from block 1
+		startHeight = 1
+		pollInterval = 200 * time.Millisecond
+	} else {
+		// Network mode - start from latest block
+		latestBlock, err := o.GetLatestBlock(ctx)
+		if err != nil {
+			a.Logger.Error().Err(err).Str("network", a.Network).Msg("Failed to get latest block")
+			return err
+		}
+		startHeight = latestBlock.Height
+		
+		// Use 800ms polling for mainnet, 200ms for testnet
+		if a.Network == "mainnet" {
+			pollInterval = 800 * time.Millisecond
+		} else {
+			pollInterval = 200 * time.Millisecond
+		}
+		
+		a.Logger.Info().
+			Str("network", a.Network).
+			Uint64("startHeight", startHeight).
+			Dur("pollInterval", pollInterval).
+			Msg("Starting to stream from latest block")
+	}
+
 	go func() {
 		a.Logger.Info().Msg("Started streaming")
 
-		err := flow.StreamTransactions(ctx, o, 200*time.Millisecond, 1, a.Logger, overflowChannel)
+		err := flow.StreamTransactions(ctx, o, pollInterval, startHeight, a.Logger, overflowChannel)
 		if err != nil {
 			if strings.Contains(err.Error(), "context canceled") {
 				a.Logger.Info().Msg("Streaming stopped due to context cancellation")
@@ -149,34 +208,36 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		}
 	}()
 
-	a.Logger.Info().Msgf("%v Created accounts for emulator users in flow.json", emoji.Person)
-	o.InitializeContracts(ctx)
+	// Only perform local setup in emulator mode
+	if a.Network == "" {
+		a.Logger.Info().Msgf("%v Created accounts for emulator users in flow.json", emoji.Person)
+		o.InitializeContracts(ctx)
 
-	a.Logger.Info().Msgf("%v  Deployed contracts specified in emulator deployment block", emoji.Envelope)
-	err = flow.AddFclContract(o, a.FclCdc)
-	if err != nil {
-		return err
-	}	
-
-	accounts := o.GetEmulatorAccounts()
-	a.Logger.Debug().Int("filtered_accounts", len(accounts)).Interface("accounts", accounts).Msg("Filtered emulator accounts")
-
-	if len(accounts) > 0 {
-		a.Logger.Info().Int("count", len(accounts)).Interface("accounts", accounts).Msgf("%v Adding accounts to FCL", emoji.Person)
-		err = flow.AddFclAccounts(o, accounts)
-		if err != nil {
+		a.Logger.Info().Msgf("%v  Deployed contracts specified in emulator deployment block", emoji.Envelope)
+		if err := flow.AddFclContract(o, a.FclCdc); err != nil {
 			return err
 		}
-		a.Logger.Info().Msgf("%v Successfully added %d accounts to FCL", emoji.Person, len(accounts))
-	} else {
-		a.Logger.Warn().Msg("No accounts to add to FCL")
-	}
 
-	// Use same overflow state for both .cdc and .json files
-	// Both point to same state since JSON configs reference the same transaction files
-	err = flow.RunInitTransactions(o, oR, validPath, a.Logger)
-	if err != nil {
-		return err
+		accounts := o.GetEmulatorAccounts()
+		a.Logger.Debug().Int("filtered_accounts", len(accounts)).Interface("accounts", accounts).Msg("Filtered emulator accounts")
+
+		if len(accounts) > 0 {
+			a.Logger.Info().Int("count", len(accounts)).Interface("accounts", accounts).Msgf("%v Adding accounts to FCL", emoji.Person)
+			if err := flow.AddFclAccounts(o, accounts); err != nil {
+				return err
+			}
+			a.Logger.Info().Msgf("%v Successfully added %d accounts to FCL", emoji.Person, len(accounts))
+		} else {
+			a.Logger.Warn().Msg("No accounts to add to FCL")
+		}
+
+		// Use same overflow state for both .cdc and .json files
+		// Both point to same state since JSON configs reference the same transaction files
+		if err := flow.RunInitTransactions(o, oR, validPath, a.Logger); err != nil {
+			return err
+		}
+	} else {
+		a.Logger.Info().Str("network", a.Network).Msg("Following network - skipping local setup steps")
 	}
 	return nil
 }
