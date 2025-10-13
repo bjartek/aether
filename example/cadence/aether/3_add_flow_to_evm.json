@@ -1,0 +1,9 @@
+{
+  "name": "sendFlowToEVM",
+  "signers": [
+    "account"
+  ],
+  "arguments": {
+    "addr": "93103412FcB5b1F36933a953E036C9772B5425a3"
+  }
+}

@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/alecthomas/chroma/v2 v2.20.0
-	github.com/bjartek/overflow/v2 v2.9.2
+	github.com/bjartek/overflow/v2 v2.10.1
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -13,11 +13,11 @@ require (
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/onflow/cadence v1.7.1
 	github.com/onflow/fcl-dev-wallet v0.8.1-0.20250202234348-69de8fd4c335
-	github.com/onflow/flow-emulator v1.7.2
+	github.com/onflow/flow-emulator v1.8.0
 	github.com/onflow/flow-evm-gateway v1.3.4
 	github.com/onflow/flow-go v0.43.1-rc.5-pr8007.0.20251007165614-c6967df18fa9
 	github.com/onflow/flow-go-sdk v1.8.4
-	github.com/onflow/flowkit/v2 v2.6.0
+	github.com/onflow/flowkit/v2 v2.6.1
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/afero v1.15.0
 )
@@ -43,7 +43,7 @@ require (
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.0 // indirect
-	github.com/bjartek/underflow v1.15.0 // indirect
+	github.com/bjartek/underflow v1.16.0 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.3 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -187,7 +187,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nightlyone/lockfile v1.0.0 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
-	github.com/onflow/atree v0.10.1 // indirect
+	github.com/onflow/atree v0.11.0 // indirect
 	github.com/onflow/crypto v0.25.3 // indirect
 	github.com/onflow/fixed-point v0.1.1 // indirect
 	github.com/onflow/flixkit-go/v2 v2.5.1 // indirect

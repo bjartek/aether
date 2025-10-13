@@ -10,6 +10,7 @@ import (
 
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
+	"github.com/bjartek/underflow"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/enescakir/emoji"
 	"github.com/rs/zerolog"
@@ -56,6 +57,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		return fmt.Errorf("neither %q nor %q exists", path1, path2)
 	}
 
+	//TODO: make the underflow values configurable
 	// Initialize overflow based on network mode
 	var o *overflow.OverflowState
 	if a.Network == "" {
@@ -65,7 +67,10 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			overflow.WithLogNone(),
 			overflow.WithReturnErrors(),
 			overflow.WithTransactionFolderName("aether"),
-			overflow.WithBasePath(basePath))
+			overflow.WithBasePath(basePath),
+			overflow.WithUnderflowOptions(underflow.Options{
+				ByteArrayAsHex: true,
+			}))
 	} else {
 		// Network mode (testnet or mainnet)
 		a.Logger.Info().Str("network", a.Network).Msg("Initializing overflow for network")
@@ -74,7 +79,10 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			overflow.WithLogNone(),
 			overflow.WithReturnErrors(),
 			overflow.WithTransactionFolderName("aether"),
-			overflow.WithBasePath(basePath))
+			overflow.WithBasePath(basePath),
+			overflow.WithUnderflowOptions(underflow.Options{
+				ByteArrayAsHex: true,
+			}))
 	}
 
 	// Only create accounts in local mode
@@ -102,13 +110,19 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			overflow.WithExistingEmulator(),
 			overflow.WithLogNone(),
 			overflow.WithReturnErrors(),
-			overflow.WithBasePath(basePath))
+			overflow.WithBasePath(basePath),
+			overflow.WithUnderflowOptions(underflow.Options{
+				ByteArrayAsHex: true,
+			}))
 	} else {
 		oR = overflow.Overflow(
 			overflow.WithNetwork(a.Network),
 			overflow.WithLogNone(),
 			overflow.WithReturnErrors(),
-			overflow.WithBasePath(basePath))
+			overflow.WithBasePath(basePath),
+			overflow.WithUnderflowOptions(underflow.Options{
+				ByteArrayAsHex: true,
+			}))
 	}
 
 	// Send overflow ready message to UI

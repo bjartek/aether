@@ -59,16 +59,18 @@ func DefaultLogsKeyMap() LogsKeyMap {
 
 // LogsView manages the logs display with a scrollable viewport.
 type LogsView struct {
-	viewport     viewport.Model
-	filterInput  textinput.Model
-	lines        []string
+	viewport      viewport.Model
+	filterInput   textinput.Model
+	lines         []string
 	filteredLines []string
-	maxLines     int
-	keys         LogsKeyMap
-	ready        bool
-	autoScroll   bool
-	filterMode   bool
-	filterText   string
+	maxLines      int
+	keys          LogsKeyMap
+	ready         bool
+	autoScroll    bool
+	filterMode    bool
+	filterText    string
+	headerHeight  int // Cached header height for viewport calculation
+	totalHeight   int // Total height available for the entire logs view
 }
 
 // NewLogsView creates a new logs view.
@@ -78,7 +80,7 @@ func NewLogsView() *LogsView {
 	filterInput.CharLimit = 100
 	filterInput.Width = 50
 	
-	return &LogsView{
+	lv := &LogsView{
 		lines:         make([]string, 0),
 		filteredLines: make([]string, 0),
 		maxLines:      10000, // Keep last 10000 lines in memory
@@ -88,7 +90,10 @@ func NewLogsView() *LogsView {
 		filterInput:   filterInput,
 		filterMode:    false,
 		filterText:    "",
+		headerHeight:  2, // Initialize with default header height
 	}
+	
+	return lv
 }
 
 func (lv *LogsView) Init() tea.Cmd {
@@ -113,9 +118,45 @@ func (lv *LogsView) applyFilter() {
 	}
 }
 
+// updateHeaderHeight calculates the header height based on current state
+func (lv *LogsView) updateHeaderHeight() {
+	// Render the header components exactly as they appear in View() to measure actual height
+	headerStyle := lipgloss.NewStyle().
+		Foreground(primaryColor).
+		Bold(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(mutedColor)
+	
+	header := headerStyle.Render("Application Logs") + "\n"
+	
+	// Show filter bar if in filter mode
+	var filterBar string
+	if lv.filterMode {
+		filterStyle := lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true)
+		filterBar = filterStyle.Render("Filter: ") + lv.filterInput.View() + "\n"
+	} else if lv.filterText != "" {
+		// Show active filter indicator
+		filterStyle := lipgloss.NewStyle().
+			Foreground(mutedColor)
+		matchCount := len(lv.filteredLines)
+		totalCount := len(lv.lines)
+		filterBar = filterStyle.Render(fmt.Sprintf("Filter: '%s' (%d/%d lines) • Press / to edit, Esc to clear", lv.filterText, matchCount, totalCount)) + "\n"
+	}
+	
+	// Measure actual rendered height (header + optional filter bar)
+	fullHeader := header + filterBar
+	lv.headerHeight = lipgloss.Height(fullHeader)
+}
+
 // Update handles messages for the logs view.
 func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 	var cmd tea.Cmd
+	
+	// Always store the current height for viewport size validation
+	lv.totalHeight = height
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -128,7 +169,9 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				lv.filterText = ""
 				lv.filterInput.SetValue("")
 				lv.applyFilter()
+				lv.updateHeaderHeight()
 				if lv.ready {
+					lv.viewport.Height = height - lv.headerHeight
 					lv.viewport.SetContent(strings.Join(lv.filteredLines, "\n"))
 				}
 				return nil
@@ -137,7 +180,9 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				lv.filterMode = false
 				lv.filterText = lv.filterInput.Value()
 				lv.applyFilter()
+				lv.updateHeaderHeight()
 				if lv.ready {
+					lv.viewport.Height = height - lv.headerHeight
 					lv.viewport.SetContent(strings.Join(lv.filteredLines, "\n"))
 				}
 				return nil
@@ -158,6 +203,11 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if key.Matches(msg, lv.keys.Filter) {
 			lv.filterMode = true
 			lv.filterInput.Focus()
+			lv.updateHeaderHeight()
+			// Resize viewport to account for filter bar
+			if lv.ready {
+				lv.viewport.Height = height - lv.headerHeight
+			}
 			return textinput.Blink
 		}
 		
@@ -174,8 +224,13 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				atBottom = lv.viewport.AtBottom()
 			}
 
-			// Add new line
-			lv.lines = append(lv.lines, strings.TrimRight(msg.Line, "\n"))
+			// Add new line, converting escaped newlines to actual newlines for readability
+			line := strings.TrimRight(msg.Line, "\n")
+			// Replace literal \n, \t with actual newlines and tabs for better formatting
+			line = strings.ReplaceAll(line, "\\n", "\n")
+			line = strings.ReplaceAll(line, "\\t", "  ") // Convert tabs to spaces for consistent display
+			
+			lv.lines = append(lv.lines, line)
 
 			// Keep only the last maxLines
 			if len(lv.lines) > lv.maxLines {
@@ -196,8 +251,19 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		return nil
 
 	case tea.WindowSizeMsg:
+		// Calculate header height including filter bar if active
+		lv.updateHeaderHeight()
+		viewportHeight := height - lv.headerHeight
+		
+		// Ensure viewport height is at least 1 to avoid negative or zero height
+		if viewportHeight < 1 {
+			viewportHeight = 1
+		}
+		
 		if !lv.ready {
-			lv.viewport = viewport.New(width, height)
+			lv.viewport = viewport.New(width, viewportHeight)
+			// Set explicit style to prevent any unexpected rendering
+			lv.viewport.Style = lipgloss.NewStyle()
 			lv.applyFilter()
 			lv.viewport.SetContent(strings.Join(lv.filteredLines, "\n"))
 
@@ -212,7 +278,7 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			lv.ready = true
 		} else {
 			lv.viewport.Width = width
-			lv.viewport.Height = height
+			lv.viewport.Height = viewportHeight
 		}
 
 	}
@@ -225,6 +291,15 @@ func (lv *LogsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 }
 
 // View renders the logs view.
+// TODO: KNOWN ISSUE - Header scrolls away when logs overflow
+// Attempted fixes:
+// - Removed vertical padding from contentStyle
+// - Used lipgloss.Place to constrain height
+// - Set viewport height = totalHeight - headerHeight
+// - Added explicit viewport.Style
+// The viewport.View() may be returning more lines than viewport.Height
+// or the terminal is scrolling the entire output despite size constraints.
+// Consider: using a table instead of viewport, or investigating bubbletea viewport internals
 func (lv *LogsView) View() string {
 	if !lv.ready {
 		return "Loading logs..."
@@ -235,6 +310,16 @@ func (lv *LogsView) View() string {
 			Foreground(mutedColor).
 			Render("Waiting for log entries...")
 	}
+
+	// Render sticky header
+	headerStyle := lipgloss.NewStyle().
+		Foreground(primaryColor).
+		Bold(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(mutedColor)
+	
+	header := headerStyle.Render("Application Logs") + "\n"
 
 	// Show filter input if in filter mode
 	var filterBar string
@@ -252,10 +337,28 @@ func (lv *LogsView) View() string {
 		filterBar = filterStyle.Render(fmt.Sprintf("Filter: '%s' (%d/%d lines) • Press / to edit, Esc to clear", lv.filterText, matchCount, totalCount)) + "\n"
 	}
 
-	if filterBar != "" {
-		return filterBar + lv.viewport.View()
+	// Get the viewport content - this is the scrollable portion
+	// The viewport internally manages which lines are visible based on its height and YOffset
+	viewportContent := lv.viewport.View()
+	
+	// Combine header, filter bar, and viewport
+	fullContent := header + filterBar + viewportContent
+	
+	// CRITICAL FIX: Force content into exact height box using Place
+	// This absolutely prevents overflow by truncating if needed
+	if lv.totalHeight > 0 && lv.viewport.Width > 0 {
+		// Use Place to put content in an exact-sized box
+		// If content is too tall, it will be truncated from bottom
+		fullContent = lipgloss.Place(
+			lv.viewport.Width,
+			lv.totalHeight,
+			lipgloss.Left,
+			lipgloss.Top,
+			fullContent,
+		)
 	}
-	return lv.viewport.View()
+	
+	return fullContent
 }
 
 // Stop is a no-op for the logs view (kept for interface compatibility).

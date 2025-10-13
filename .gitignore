@@ -3,6 +3,7 @@ imports
 aether-debug.log
 evm-gateway-db
 
+aether.log
 # Foundry/Solidity example artifacts
 example/sol/cache/
 example/sol/out/

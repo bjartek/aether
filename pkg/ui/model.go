@@ -158,7 +158,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.logsView != nil {
 			headerHeight := 3
 			contentHeight := m.height - headerHeight
-			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
+			cmd = m.logsView.Update(msg, m.width-4, contentHeight)
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
@@ -194,7 +194,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		if m.logsView != nil {
-			cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
+			cmd = m.logsView.Update(msg, m.width-4, contentHeight)
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
@@ -238,7 +238,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 			if m.logsView != nil {
-				cmd = m.logsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
+				cmd = m.logsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight)
 				cmds = append(cmds, cmd)
 			}
 			return m, tea.Batch(cmds...)
@@ -299,7 +299,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = m.runnerView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
 	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
-		cmd = m.logsView.Update(msg, m.width-4, contentHeight-2)
+		cmd = m.logsView.Update(msg, m.width-4, contentHeight)
 		cmds = append(cmds, cmd)
 	}
 
@@ -410,8 +410,14 @@ func (m Model) renderContent(height int) string {
 		// Render runner tab
 		viewContent = m.runnerView.View()
 	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
-		// Render logs tab
-		viewContent = m.logsView.View()
+		// Render logs tab - use custom style without vertical padding
+		// TODO: See logs_view.go - header still scrolls when content overflows
+		// This removes vertical padding to prevent adding to height,
+		// and passes full contentHeight to the view (no -2 adjustment)
+		logsStyle := lipgloss.NewStyle().
+			Padding(0, 2). // Only horizontal padding, no vertical padding
+			Width(m.width - 2)
+		return logsStyle.Render(m.logsView.View())
 	} else {
 		// Otherwise render static content
 		viewContent = m.tabs[m.activeTab].Content

@@ -67,6 +67,7 @@ run `make` to build the binary start it and run it in the example folder
   - save transactions from transactions view with network suffix
   - syntax highlight using chroma
   -  support for running on testnet/mainnet from the latest blockheight?
+  - show [uint8] as hex string (this will be configurable eventually)
 
 ## Testing EVM Support with Foundry
 
