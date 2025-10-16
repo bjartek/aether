@@ -132,3 +132,5 @@ This does not work atm, debuging with mpeter
 - [ ] human friendly display of unix timestamp
 - [ ] events table show time column
 - [ ] scheduled transaction
+- [ ] navigating in runner is slow since we have to step through arguments
+- [ ] make a config file
