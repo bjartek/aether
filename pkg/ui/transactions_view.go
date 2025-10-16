@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,6 +20,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/onflow/flow-evm-gateway/models"
+	"github.com/onflow/flow-go/fvm/evm/events"
 )
 
 // ArgumentData holds argument name and value for display
@@ -26,6 +29,22 @@ type ArgumentData struct {
 	Name  string
 	Value string
 }
+
+// EVMTransactionData wraps all data returned from decoding an EVM transaction event
+type EVMTransactionData struct {
+	Transaction models.Transaction
+	Receipt     *models.Receipt
+	Payload     *events.TransactionEventPayload
+}
+
+// TransactionType represents the type of transaction
+type TransactionType string
+
+const (
+	TransactionTypeFlow  TransactionType = "flow"  // Only Flow/Cadence events
+	TransactionTypeEVM   TransactionType = "evm"   // Only EVM events
+	TransactionTypeMixed TransactionType = "mixed" // Both Flow and EVM events
+)
 
 // TransactionData holds transaction information for display
 type TransactionData struct {
@@ -41,6 +60,8 @@ type TransactionData struct {
 	HighlightedScript string // Syntax-highlighted script with ANSI colors
 	Arguments         []ArgumentData
 	Events            []overflow.OverflowEvent
+	EVMTransactions   []EVMTransactionData // Decoded EVM transactions
+	Type              TransactionType      // Transaction type (flow/evm/mixed)
 	Error             string
 	Timestamp         time.Time
 	Index             int
@@ -109,36 +130,37 @@ func DefaultTransactionsKeyMap() TransactionsKeyMap {
 
 // TransactionsView manages the transactions table and detail display
 type TransactionsView struct {
-	mu                sync.RWMutex
-	table             table.Model
-	detailViewport    viewport.Model
-	filterInput       textinput.Model
-	saveInput         textinput.Model // Input for save filename
-	keys              TransactionsKeyMap
-	ready             bool
-	transactions      []TransactionData
-	filteredTxs       []TransactionData
-	maxTxs            int
-	width             int
-	height            int
-	fullDetailMode    bool   // Toggle between split and full-screen detail view
-	showEventFields   bool   // Toggle showing event field details
-	showRawAddresses  bool   // Toggle showing raw addresses vs friendly names
-	filterMode        bool   // Whether filter input is active
-	filterText        string // Current filter text
-	savingMode        bool   // Whether save dialog is active
-	saveError         string // Error message from last save attempt
-	saveSuccess       string // Success message from last save
-	accountRegistry   *aether.AccountRegistry
+	mu               sync.RWMutex
+	table            table.Model
+	detailViewport   viewport.Model
+	filterInput      textinput.Model
+	saveInput        textinput.Model // Input for save filename
+	keys             TransactionsKeyMap
+	ready            bool
+	transactions     []TransactionData
+	filteredTxs      []TransactionData
+	maxTxs           int
+	width            int
+	height           int
+	fullDetailMode   bool   // Toggle between split and full-screen detail view
+	showEventFields  bool   // Toggle showing event field details
+	showRawAddresses bool   // Toggle showing raw addresses vs friendly names
+	filterMode       bool   // Whether filter input is active
+	filterText       string // Current filter text
+	savingMode       bool   // Whether save dialog is active
+	saveError        string // Error message from last save attempt
+	saveSuccess      string // Success message from last save
+	accountRegistry  *aether.AccountRegistry
 }
 
 // NewTransactionsView creates a new transactions view
 func NewTransactionsView() *TransactionsView {
 	columns := []table.Column{
-		{Title: "ID", Width: 20},         // Truncated hex (8...8)
-		{Title: "Block", Width: 6},       // Slimmer for block numbers
-		{Title: "Authorizer", Width: 30}, // Wider to show friendly names
-		{Title: "Status", Width: 10},
+		{Title: "ID", Width: 16},   // Truncated hex
+		{Title: "Block", Width: 5}, // Block numbers
+		{Title: "Auth", Width: 18}, // Authorizer
+		{Title: "Type", Width: 5},  // Transaction type
+		{Title: "Status", Width: 8},
 	}
 
 	t := table.New(
@@ -157,7 +179,7 @@ func NewTransactionsView() *TransactionsView {
 		Foreground(base03).
 		Background(solarYellow).
 		Bold(false)
-	
+
 	t.SetStyles(s)
 
 	// Create viewport for detail view
@@ -177,7 +199,7 @@ func NewTransactionsView() *TransactionsView {
 	saveInput.Width = 40
 
 	const maxTransactions = 10000
-	
+
 	return &TransactionsView{
 		table:            t,
 		detailViewport:   vp,
@@ -355,6 +377,39 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 	// Store events directly
 	events := ot.Events
 
+	// Detect and decode EVM transactions from events
+	evmTransactions := make([]EVMTransactionData, 0)
+	hasEVMEvents := false
+	hasNonEVMEvents := false
+
+	for _, event := range events {
+		// Check if this is an EVM.TransactionExecuted event
+		if strings.Contains(event.Name, "EVM.TransactionExecuted") {
+			hasEVMEvents = true
+			tx, receipt, payload, err := models.DecodeTransactionEvent(event.RawEvent)
+			if err != nil {
+				// Skip events that fail to decode
+				continue
+			}
+			evmTx := EVMTransactionData{
+				Transaction: tx,
+				Receipt:     receipt,
+				Payload:     payload,
+			}
+			evmTransactions = append(evmTransactions, evmTx)
+		} else {
+			hasNonEVMEvents = true
+		}
+	}
+
+	// Determine transaction type
+	txType := TransactionTypeFlow // Default to flow
+	if hasEVMEvents && !hasNonEVMEvents {
+		txType = TransactionTypeEVM
+	} else if hasEVMEvents && hasNonEVMEvents {
+		txType = TransactionTypeMixed
+	}
+
 	txData := TransactionData{
 		ID:                ot.Id,
 		BlockID:           blockID,
@@ -368,6 +423,8 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 		HighlightedScript: highlightedScript,
 		Arguments:         args,
 		Events:            events,
+		EVMTransactions:   evmTransactions,
+		Type:              txType,
 		Error:             errMsg,
 		Timestamp:         time.Now(),
 		Index:             ot.TransactionIndex,
@@ -431,7 +488,7 @@ func (tv *TransactionsView) applyFilter() {
 		// Filter by authorizer friendly name
 		tv.filteredTxs = make([]TransactionData, 0)
 		filterLower := strings.ToLower(tv.filterText)
-		
+
 		for _, tx := range tv.transactions {
 			for _, authAddr := range tx.Authorizers {
 				// Get friendly name if available
@@ -439,7 +496,7 @@ func (tv *TransactionsView) applyFilter() {
 				if tv.accountRegistry != nil {
 					name = tv.accountRegistry.GetName(authAddr)
 				}
-				
+
 				// Check if name matches filter
 				if strings.Contains(strings.ToLower(name), filterLower) {
 					tv.filteredTxs = append(tv.filteredTxs, tx)
@@ -457,7 +514,7 @@ func (tv *TransactionsView) refreshTable() {
 	if tv.filterText != "" {
 		txList = tv.filteredTxs
 	}
-	
+
 	rows := make([]table.Row, len(txList))
 	for i, tx := range txList {
 		// Show first authorizer in table with friendly name if available
@@ -489,7 +546,8 @@ func (tv *TransactionsView) refreshTable() {
 		rows[i] = table.Row{
 			truncateHex(tx.ID, 8, 8), // Show start and end of ID
 			fmt.Sprintf("%d", tx.BlockHeight),
-			authDisplay, // Show friendly name or truncated address
+			authDisplay,     // Show friendly name or truncated address
+			string(tx.Type), // Transaction type (flow/evm/mixed)
 			tx.Status,
 		}
 	}
@@ -534,17 +592,17 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 					tv.saveError = "Filename cannot be empty"
 					return nil
 				}
-				
+
 				// Get selected transaction from the currently displayed list
 				selectedIdx := tv.table.Cursor()
 				tv.mu.RLock()
-				
+
 				// Use the same logic as refreshTable - check which list is displayed
 				txList := tv.transactions
 				if tv.filterText != "" {
 					txList = tv.filteredTxs
 				}
-				
+
 				if selectedIdx < 0 || selectedIdx >= len(txList) {
 					tv.mu.RUnlock()
 					tv.saveError = "No transaction selected"
@@ -552,7 +610,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				}
 				tx := txList[selectedIdx]
 				tv.mu.RUnlock()
-				
+
 				// Perform save
 				err := tv.saveTransaction(filename, tx)
 				if err != nil {
@@ -560,7 +618,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 					tv.saveSuccess = ""
 					return nil
 				}
-				
+
 				// Success - show message and close dialog
 				tv.saveSuccess = fmt.Sprintf("Saved %s.emulator.cdc and %s.json", filename, filename)
 				tv.savingMode = false
@@ -575,7 +633,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				return cmd
 			}
 		}
-		
+
 		// Handle filter mode
 		if tv.filterMode {
 			switch {
@@ -611,14 +669,14 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				return cmd
 			}
 		}
-		
+
 		// Handle filter activation
 		if key.Matches(msg, tv.keys.Filter) {
 			tv.filterMode = true
 			tv.filterInput.Focus()
 			return textinput.Blink
 		}
-		
+
 		// Handle toggle full detail view
 		if key.Matches(msg, tv.keys.ToggleFullDetail) {
 			wasFullMode := tv.fullDetailMode
@@ -631,7 +689,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			}
 			return nil
 		}
-		
+
 		// Handle Esc to exit full detail view
 		if tv.fullDetailMode && key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
 			tv.fullDetailMode = false
@@ -698,7 +756,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 func (tv *TransactionsView) saveTransaction(filename string, tx TransactionData) error {
 	// Always use transactions directory, create if needed
 	dir := "transactions"
-	
+
 	// Check if cadence/transactions exists instead
 	if _, err := os.Stat("cadence/transactions"); err == nil {
 		dir = "cadence/transactions"
@@ -758,19 +816,19 @@ func (tv *TransactionsView) View() string {
 		var content strings.Builder
 		saveTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Save Transaction")
 		content.WriteString(saveTitle + "\n\n")
-		
+
 		content.WriteString("Enter filename (without extension):\n")
 		content.WriteString(tv.saveInput.View() + "\n\n")
-		
+
 		if tv.saveError != "" {
 			errorStyle := lipgloss.NewStyle().Foreground(errorColor)
 			content.WriteString(errorStyle.Render("Error: "+tv.saveError) + "\n\n")
 		}
-		
+
 		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
 		content.WriteString(hintStyle.Render("Will save as <name>.emulator.cdc and <name>.json") + "\n")
 		content.WriteString(hintStyle.Render("Press Enter to save, Esc to cancel") + "\n")
-		
+
 		return content.String()
 	}
 
@@ -781,7 +839,7 @@ func (tv *TransactionsView) View() string {
 			Render("Press Tab or Esc to return to table view | j/k to scroll")
 		return hint + "\n\n" + tv.detailViewport.View()
 	}
-	
+
 	// Show filter input if in filter mode
 	var filterBar string
 	if tv.filterMode {
@@ -796,14 +854,14 @@ func (tv *TransactionsView) View() string {
 		matchCount := len(tv.filteredTxs)
 		filterBar = filterStyle.Render(fmt.Sprintf("Filter: '%s' (%d matches) • Press / to edit, Esc to clear", tv.filterText, matchCount)) + "\n"
 	}
-	
+
 	// Show success message if present
 	var successBar string
 	if tv.saveSuccess != "" {
 		successStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("10")). // Green color
 			Bold(true)
-		successBar = successStyle.Render("✓ " + tv.saveSuccess) + "\n"
+		successBar = successStyle.Render("✓ "+tv.saveSuccess) + "\n"
 	}
 
 	// Split view mode - table on left, detail on right
@@ -834,7 +892,7 @@ func (tv *TransactionsView) View() string {
 		tableView,
 		detailView,
 	)
-	
+
 	// Add filter bar and success message on top if present
 	topBars := successBar + filterBar
 	if topBars != "" {
@@ -863,12 +921,12 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 	details.WriteString(renderField("Index", fmt.Sprintf("%d", tx.Index)))
 	details.WriteString(renderField("Gas Limit", fmt.Sprintf("%d", tx.GasLimit)))
 	details.WriteString("\n")
-	
+
 	// Account table with fixed-width columns using lipgloss Width
 	colWidth := 20
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Width(colWidth)
 	valueStyle := lipgloss.NewStyle().Foreground(accentColor).Width(colWidth)
-	
+
 	// Headers
 	details.WriteString(headerStyle.Render("Proposer"))
 	details.WriteString(headerStyle.Render("Payer"))
@@ -893,7 +951,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 		} else {
 			authDisplay = auth
 		}
-		
+
 		if i == 0 {
 			// First line with proposer, payer, and first authorizer
 			details.WriteString(valueStyle.Render(proposerDisplay))
@@ -950,6 +1008,62 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 					details.WriteString(fmt.Sprintf("     %s: %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))
+				}
+			}
+		}
+		details.WriteString("\n")
+	}
+
+	// Display EVM transactions if any
+	if len(tx.EVMTransactions) > 0 {
+		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", fmt.Sprintf("EVM Transactions (%d):", len(tx.EVMTransactions)))) + "\n")
+		for i, evmTx := range tx.EVMTransactions {
+			details.WriteString(fmt.Sprintf("  %d. %s\n", i+1, valueStyleDetail.Render(evmTx.Transaction.Hash().Hex())))
+			details.WriteString(fmt.Sprintf("     Type:       %d\n", evmTx.Payload.TransactionType))
+			details.WriteString(fmt.Sprintf("     Gas Used:   %d\n", evmTx.Receipt.GasUsed))
+
+			if from, err := evmTx.Transaction.From(); err == nil {
+				details.WriteString(fmt.Sprintf("     From:       %s\n", from.Hex()))
+			}
+			if to := evmTx.Transaction.To(); to != nil {
+				details.WriteString(fmt.Sprintf("     To:         %s\n", to.Hex()))
+			}
+
+			// Display value if non-zero
+			if value := evmTx.Transaction.Value(); value != nil && value.Sign() > 0 {
+				// Convert wei to FLOW (1 FLOW = 1e18 wei)
+				weiBig := new(big.Float).SetInt(value)
+				divisor := new(big.Float).SetFloat64(1e18)
+				flowValue := new(big.Float).Quo(weiBig, divisor)
+				details.WriteString(fmt.Sprintf("     Value:      %s FLOW\n", flowValue.Text('f', 6)))
+			}
+
+			if evmTx.Payload.ErrorCode != 0 {
+				details.WriteString(fmt.Sprintf("     Error:      %s\n",
+					lipgloss.NewStyle().Foreground(errorColor).Render(evmTx.Payload.ErrorMessage)))
+			} else {
+				details.WriteString(fmt.Sprintf("     Status:     %s\n",
+					lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render("Success")))
+			}
+
+			// Display logs if any
+			if len(evmTx.Receipt.Logs) > 0 {
+				details.WriteString(fmt.Sprintf("     Logs:       %d\n", len(evmTx.Receipt.Logs)))
+				for logIdx, log := range evmTx.Receipt.Logs {
+					details.WriteString(fmt.Sprintf("       %d. Address: %s\n", logIdx+1, log.Address.Hex()))
+					if len(log.Topics) > 0 {
+						details.WriteString(fmt.Sprintf("          Topics: %d\n", len(log.Topics)))
+						for topicIdx, topic := range log.Topics {
+							details.WriteString(fmt.Sprintf("            %d: %s\n", topicIdx, topic.Hex()))
+						}
+					}
+					if len(log.Data) > 0 {
+						dataHex := fmt.Sprintf("0x%x", log.Data)
+						if len(dataHex) > 66 {
+							dataHex = dataHex[:66] + "..."
+						}
+						details.WriteString(fmt.Sprintf("          Data: %s\n", dataHex))
+					}
 				}
 			}
 		}
@@ -1046,25 +1160,25 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 		colWidth := 20
 		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Width(colWidth)
 		valueStyle := lipgloss.NewStyle().Foreground(accentColor).Width(colWidth)
-		
+
 		// Headers
 		details.WriteString(headerStyle.Render("Proposer"))
 		details.WriteString(headerStyle.Render("Payer"))
 		details.WriteString(fieldStyle.Render("Authorizers"))
 		details.WriteString("\n")
 		lineCount++
-		
+
 		// Format addresses with friendly names
 		proposerDisplay := tx.Proposer
 		if !tv.showRawAddresses && tv.accountRegistry != nil {
 			proposerDisplay = tv.accountRegistry.GetName(tx.Proposer)
 		}
-		
+
 		payerDisplay := tx.Payer
 		if !tv.showRawAddresses && tv.accountRegistry != nil {
 			payerDisplay = tv.accountRegistry.GetName(tx.Payer)
 		}
-		
+
 		for i, auth := range tx.Authorizers {
 			var authDisplay string
 			if !tv.showRawAddresses && tv.accountRegistry != nil {
@@ -1072,7 +1186,7 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 			} else {
 				authDisplay = auth
 			}
-			
+
 			if i == 0 {
 				// First line with proposer, payer, and first authorizer
 				details.WriteString(valueStyle.Render(proposerDisplay))

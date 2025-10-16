@@ -12,9 +12,9 @@ import (
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/bjartek/aether/pkg/ui"
 	tea "github.com/charmbracelet/bubbletea"
-	gatewayConfig "github.com/onflow/flow-evm-gateway/config"
-	"github.com/onflow/flow-emulator/server"
 	devWallet "github.com/onflow/fcl-dev-wallet/go/wallet"
+	"github.com/onflow/flow-emulator/server"
+	gatewayConfig "github.com/onflow/flow-evm-gateway/config"
 	"github.com/rs/zerolog"
 )
 
@@ -91,17 +91,9 @@ func main() {
 			panic(err2)
 		}
 
-		// Determine log level for gateway
-		var gatewayLogLevel zerolog.Level
-		if *verbose {
-			gatewayLogLevel = zerolog.DebugLevel
-		} else {
-			gatewayLogLevel = zerolog.InfoLevel
-		}
-
 		aetherLogger.Info().Msg("Initializing EVM gateway...")
 		var err3 error
-		gateway, gatewayCfg, err3 = flow.InitGateway(logWriter, gatewayLogLevel)
+		gateway, gatewayCfg, err3 = flow.InitGateway(gatewayLogger)
 		if err3 != nil {
 			aetherLogger.Error().Err(err3).Msg("Failed to initialize EVM gateway")
 			panic(err3)

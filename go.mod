@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/bjartek/overflow/v2 v2.10.1
+	github.com/bjartek/underflow v1.16.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -43,7 +44,6 @@ require (
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.0 // indirect
-	github.com/bjartek/underflow v1.16.0 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.3 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -302,3 +302,5 @@ require (
 	mvdan.cc/gofumpt v0.5.0 // indirect
 	nhooyr.io/websocket v1.8.7 // indirect
 )
+
+replace github.com/onflow/flow-evm-gateway => github.com/bjartek/flow-evm-gateway v1.3.2-0.20251016202144-8e63505569d7

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
 	"os"
 
@@ -31,7 +30,7 @@ type Gateway struct {
 }
 
 // InitGateway initializes the EVM gateway with default configuration
-func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gatewayConfig.Config, error) {
+func InitGateway(logger zerolog.Logger) (*Gateway, gatewayConfig.Config, error) {
 	loader := &afero.Afero{Fs: afero.NewOsFs()}
 	state, err := flowkit.Load(config.DefaultPaths(), loader)
 	if err != nil {
@@ -72,7 +71,6 @@ func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gateway
 	dbPath := "./evm-gateway-db"
 
 	// Create logger for gateway operations
-	logger := zerolog.New(logWriter).With().Str("component", "evm-gateway").Timestamp().Logger().Level(logLevel)
 	logger.Info().Str("evmAddress", evmAddress.Hex()).Msg("Using EVM gateway key")
 
 	// Clean up old database to ensure fresh start
@@ -99,8 +97,7 @@ func InitGateway(logWriter io.Writer, logLevel zerolog.Level) (*Gateway, gateway
 		GasPrice:          big.NewInt(1),
 		COAAddress:        flowsdk.Address(serviceAccount.Address),
 		COAKey:            flowPrivateKey, // Flow private key for COA operations
-		LogWriter:         logWriter,
-		LogLevel:          logLevel,
+		Logger:            &logger,
 		TxStateValidation: "local-index",
 		ProfilerEnabled:   true,
 		ProfilerPort:      6060,
@@ -185,5 +182,4 @@ func (g *Gateway) Stop() {
 	}
 	// Wait for gateway to fully stop
 	<-g.done
-
 }
