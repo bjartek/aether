@@ -156,7 +156,8 @@ type TransactionsView struct {
 // NewTransactionsView creates a new transactions view
 func NewTransactionsView() *TransactionsView {
 	columns := []table.Column{
-		{Title: "ID", Width: 16},   // Truncated hex
+		{Title: "Time", Width: 8},  // Execution time
+		{Title: "ID", Width: 9},    // Truncated hex (first 3 + ... + last 3)
 		{Title: "Block", Width: 5}, // Block numbers
 		{Title: "Auth", Width: 18}, // Authorizer
 		{Title: "Type", Width: 5},  // Transaction type
@@ -544,7 +545,8 @@ func (tv *TransactionsView) refreshTable() {
 		}
 
 		rows[i] = table.Row{
-			truncateHex(tx.ID, 8, 8), // Show start and end of ID
+			tx.Timestamp.Format("15:04:05"), // Show time only
+			truncateHex(tx.ID, 3, 3),        // Show first 3 and last 3 of ID
 			fmt.Sprintf("%d", tx.BlockHeight),
 			authDisplay,     // Show friendly name or truncated address
 			string(tx.Type), // Transaction type (flow/evm/mixed)

@@ -129,7 +129,7 @@ This does not work atm, debuging with mpeter
 
 - [ ] show accounts
 - [ ] show time not date of executed transaction
-- [ ] human friendly display of unix timestamp
+- [x] human friendly display of unix timestamp
 - [ ] events table show time column
 - [ ] scheduled transaction
 - [ ] navigating in runner is slow since we have to step through arguments

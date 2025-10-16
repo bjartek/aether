@@ -19,14 +19,14 @@ import (
 
 // EventData holds event information for display
 type EventData struct {
-	Name            string
-	BlockHeight     uint64
-	BlockID         string
-	TransactionID   string
-	TransactionIndex int
-	EventIndex      int
-	Fields          map[string]interface{}
-	Timestamp       time.Time
+	Name              string
+	BlockHeight       uint64
+	BlockID           string
+	TransactionID     string
+	TransactionIndex  int
+	EventIndex        int
+	Fields            map[string]interface{}
+	Timestamp         time.Time
 	preRenderedDetail string // Cached detail text for performance
 }
 
@@ -98,9 +98,10 @@ type EventsView struct {
 // NewEventsView creates a new events view
 func NewEventsView() *EventsView {
 	columns := []table.Column{
+		{Title: "Time", Width: 8}, // Execution time
 		{Title: "Block", Width: 6},
-		{Title: "TX Hash", Width: 20},
-		{Title: "Event #", Width: 8},
+		{Title: "#", Width: 3},  // Event index
+		{Title: "TX", Width: 9}, // Transaction hash (first 3 + ... + last 3)
 		{Title: "Event Name", Width: 70},
 	}
 
@@ -273,8 +274,8 @@ func (ev *EventsView) AddEvent(blockHeight uint64, blockID string, txID string, 
 		ev.mu.Lock()
 		// Find and update the event
 		for i := range ev.events {
-			if ev.events[i].TransactionID == eventData.TransactionID && 
-			   ev.events[i].EventIndex == eventData.EventIndex {
+			if ev.events[i].TransactionID == eventData.TransactionID &&
+				ev.events[i].EventIndex == eventData.EventIndex {
 				ev.events[i].preRenderedDetail = detail
 				break
 			}
@@ -337,13 +338,14 @@ func (ev *EventsView) refreshTable() {
 
 	rows := make([]table.Row, len(eventList))
 	for i, event := range eventList {
-		// Truncate transaction hash to show start and end
-		txHash := truncateHex(event.TransactionID, 8, 8)
-		
+		// Truncate transaction hash to show first 3 and last 3 characters
+		txHash := truncateHex(event.TransactionID, 3, 3)
+
 		rows[i] = table.Row{
+			event.Timestamp.Format("15:04:05"), // Show time only
 			fmt.Sprintf("%d", event.BlockHeight),
-			txHash,
 			fmt.Sprintf("%d", event.EventIndex),
+			txHash,
 			truncateString(event.Name, 70),
 		}
 	}
@@ -420,7 +422,7 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			}
 			return nil
 		}
-		
+
 		// Handle Esc to exit full detail view
 		if ev.fullDetailMode && key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
 			ev.fullDetailMode = false
