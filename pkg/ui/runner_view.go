@@ -1,18 +1,19 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/chroma"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
+	"github.com/bjartek/underflow"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
@@ -648,6 +649,126 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 	}
 }
 
+// isUnixTimestamp checks if a numeric value could be a unix timestamp
+func (rv *RunnerView) isUnixTimestamp(val interface{}) (bool, int64) {
+	var timestamp int64
+
+	switch v := val.(type) {
+	case int:
+		timestamp = int64(v)
+	case int32:
+		timestamp = int64(v)
+	case int64:
+		timestamp = v
+	case uint:
+		timestamp = int64(v)
+	case uint32:
+		timestamp = int64(v)
+	case uint64:
+		if v > 9223372036854775807 { // Max int64
+			return false, 0
+		}
+		timestamp = int64(v)
+	case float64:
+		timestamp = int64(v)
+	default:
+		return false, 0
+	}
+
+	// Check if timestamp is in a reasonable range
+	// Between Jan 1, 2000 (946684800) and Jan 1, 2100 (4102444800)
+	if timestamp >= 946684800 && timestamp <= 4102444800 {
+		// Seconds since epoch (10 digits)
+		return true, timestamp
+	} else if timestamp >= 946684800000 && timestamp <= 4102444800000 {
+		// Milliseconds since epoch (13 digits)
+		return true, timestamp / 1000
+	} else if timestamp >= 946684800000000 && timestamp <= 4102444800000000 {
+		// Microseconds since epoch (16 digits)
+		return true, timestamp / 1000000
+	} else if timestamp >= 946684800000000000 && timestamp <= 4102444800000000000 {
+		// Nanoseconds since epoch (19 digits)
+		return true, timestamp / 1000000000
+	}
+
+	return false, 0
+}
+
+// formatNumericValue formats a numeric value without scientific notation
+func (rv *RunnerView) formatNumericValue(value interface{}) string {
+	// Helper function to format number without scientific notation
+	formatNumber := func(val interface{}) string {
+		switch v := val.(type) {
+		case float64:
+			if v == float64(int64(v)) {
+				return fmt.Sprintf("%.0f", v)
+			}
+			return fmt.Sprintf("%f", v)
+		case float32:
+			if v == float32(int32(v)) {
+				return fmt.Sprintf("%.0f", v)
+			}
+			return fmt.Sprintf("%f", v)
+		case int, int8, int16, int32, int64:
+			return fmt.Sprintf("%d", v)
+		case uint, uint8, uint16, uint32, uint64:
+			return fmt.Sprintf("%d", v)
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
+	// Check if it's a timestamp first
+	if isTimestamp, timestamp := rv.isUnixTimestamp(value); isTimestamp {
+		t := time.Unix(timestamp, 0).UTC()
+		return fmt.Sprintf("%s (%s)", t.Format("2006-01-02 15:04:05 UTC"), formatNumber(value))
+	}
+
+	// Format numbers without scientific notation
+	return formatNumber(value)
+}
+
+// formatValue recursively formats a value with proper indentation
+func (rv *RunnerView) formatValue(value interface{}, indent string) string {
+	var b strings.Builder
+
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if len(v) == 0 {
+			b.WriteString("<empty>")
+			return b.String()
+		}
+		first := true
+		for key, val := range v {
+			if !first {
+				b.WriteString("\n")
+			}
+			first = false
+			b.WriteString(fmt.Sprintf("%s%s: ", indent, key))
+			b.WriteString(rv.formatValue(val, indent+"  "))
+		}
+	case []interface{}:
+		if len(v) == 0 {
+			b.WriteString("<empty>")
+			return b.String()
+		}
+		for i, val := range v {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(fmt.Sprintf("%s[%d]: ", indent, i))
+			b.WriteString(rv.formatValue(val, indent+"  "))
+		}
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		// Handle numeric types with timestamp detection and no scientific notation
+		b.WriteString(rv.formatNumericValue(v))
+	default:
+		b.WriteString(fmt.Sprintf("%v", value))
+	}
+
+	return b.String()
+}
+
 // formatScriptResult formats the script result for display
 func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) string {
 	if result == nil {
@@ -657,33 +778,11 @@ func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) 
 	var b strings.Builder
 
 	b.WriteString("✓ Script executed successfully\n\n")
+	// Use underflow to convert the Result to interface{}
+	value := underflow.CadenceValueToInterface(result.Result)
+
 	b.WriteString("Output:\n")
-
-	// Try to parse output as JSON and pretty-print it
-	outputStr := fmt.Sprintf("%v", result.Output)
-	var jsonData map[string]interface{}
-	if err := json.Unmarshal([]byte(outputStr), &jsonData); err == nil {
-		// Successfully parsed as JSON, pretty-print it
-		prettyJSON, err := json.MarshalIndent(jsonData, "", "  ")
-		if err == nil {
-			b.WriteString(string(prettyJSON))
-			return b.String()
-		}
-	}
-
-	// Try parsing as JSON array
-	var jsonArray []interface{}
-	if err := json.Unmarshal([]byte(outputStr), &jsonArray); err == nil {
-		// Successfully parsed as JSON array, pretty-print it
-		prettyJSON, err := json.MarshalIndent(jsonArray, "", "  ")
-		if err == nil {
-			b.WriteString(string(prettyJSON))
-			return b.String()
-		}
-	}
-
-	// Not valid JSON or failed to marshal, show as-is
-	b.WriteString(outputStr)
+	b.WriteString(rv.formatValue(value, ""))
 
 	return b.String()
 }
