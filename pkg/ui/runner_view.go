@@ -56,9 +56,9 @@ type ScriptFile struct {
 	Path            string
 	Type            ScriptType
 	Parameters      []Parameter
-	Signers         int    // Number of signers needed for transactions
-	Code            string // Raw code
-	HighlightedCode string // Syntax-highlighted code with ANSI colors
+	Signers         int                     // Number of signers needed for transactions
+	Code            string                  // Raw code
+	HighlightedCode string                  // Syntax-highlighted code with ANSI colors
 	Config          *flow.TransactionConfig // Pre-populated config from JSON (if loaded from .json file)
 	IsFromJSON      bool                    // True if this was loaded from a JSON config file
 	Network         string                  // Network this script is specific to (emulator, testnet, mainnet, or "any")
@@ -142,16 +142,16 @@ type RunnerView struct {
 	isExecuting      bool
 	executionResult  string
 	executionError   error
-	savingConfig     bool             // True when showing save dialog
-	saveInput        textinput.Model  // Input for save filename
-	saveError        string           // Error message from last save attempt
+	savingConfig     bool            // True when showing save dialog
+	saveInput        textinput.Model // Input for save filename
+	saveError        string          // Error message from last save attempt
 }
 
 // NewRunnerView creates a new runner view
 func NewRunnerView() *RunnerView {
 	columns := []table.Column{
 		{Title: "Type", Width: 12},
-		{Title: "Name", Width: 30},
+		{Title: "Name", Width: 35},
 		{Title: "Network", Width: 10},
 	}
 
@@ -210,6 +210,7 @@ func NewRunnerView() *RunnerView {
 }
 
 // findCdcFile searches for a .cdc file by name in common directories
+// The name can be a simple name like "message" or a nested path like "nested/message"
 func (rv *RunnerView) findCdcFile(name string, scriptType ScriptType) string {
 	// Determine which directory to search based on script type
 	var dirs []string
@@ -219,6 +220,7 @@ func (rv *RunnerView) findCdcFile(name string, scriptType ScriptType) string {
 		dirs = []string{"transactions", "cadence/transactions"}
 	}
 
+	// Name may already include path like "nested/message", just add .cdc extension
 	filename := name + ".cdc"
 	for _, dir := range dirs {
 		path := filepath.Join(dir, filename)
@@ -259,7 +261,7 @@ func (rv *RunnerView) scanFiles() {
 			}
 
 			ext := filepath.Ext(path)
-			
+
 			// Handle JSON configuration files
 			if ext == ".json" {
 				config, err := flow.LoadTransactionConfig(path)
@@ -314,11 +316,20 @@ func (rv *RunnerView) scanFiles() {
 					return err
 				}
 
+				// Calculate relative path from base directory
+				// This preserves nested folder structure (e.g., nested/message.cdc -> nested/message)
+				relPath, err := filepath.Rel(sp.dir, path)
+				if err != nil {
+					// Fallback to basename if we can't get relative path
+					relPath = filepath.Base(path)
+				}
+				// Remove .cdc extension to get the name overflow expects
+				name := strings.TrimSuffix(relPath, ".cdc")
+
+				// Detect network from filename suffix (use base filename for detection)
 				basename := filepath.Base(path)
-				name := strings.TrimSuffix(basename, ".cdc")
-				
-				// Detect network from filename suffix
-				network := rv.detectNetwork(name)
+				basenameWithoutExt := strings.TrimSuffix(basename, ".cdc")
+				network := rv.detectNetwork(basenameWithoutExt)
 				// Remove network suffix from display name if present
 				displayName := rv.removeNetworkSuffix(name)
 
@@ -375,7 +386,7 @@ func (rv *RunnerView) detectNetwork(filename string) string {
 	} else if strings.HasSuffix(filename, ".mainnet") {
 		return "mainnet"
 	}
-	
+
 	// If no suffix, check if code contains network-specific imports (addresses)
 	// For now, return "any" - we could enhance this later
 	return "any"
@@ -611,7 +622,7 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 		// Execute based on script type
 		// Overflow expects script name without .cdc extension
 		scriptName := script.Name
-		
+
 		// If this is from a JSON config, use the config's referenced name
 		if script.IsFromJSON && script.Config != nil {
 			scriptName = script.Config.Name
@@ -647,7 +658,7 @@ func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) 
 
 	b.WriteString("✓ Script executed successfully\n\n")
 	b.WriteString("Output:\n")
-	
+
 	// Try to parse output as JSON and pretty-print it
 	outputStr := fmt.Sprintf("%v", result.Output)
 	var jsonData map[string]interface{}
@@ -659,7 +670,7 @@ func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) 
 			return b.String()
 		}
 	}
-	
+
 	// Try parsing as JSON array
 	var jsonArray []interface{}
 	if err := json.Unmarshal([]byte(outputStr), &jsonArray); err == nil {
@@ -670,7 +681,7 @@ func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) 
 			return b.String()
 		}
 	}
-	
+
 	// Not valid JSON or failed to marshal, show as-is
 	b.WriteString(outputStr)
 
@@ -850,7 +861,7 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 					rv.mu.Unlock()
 					return nil
 				}
-				
+
 				selectedIdx := rv.table.Cursor()
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					script := rv.scripts[selectedIdx]
@@ -1103,18 +1114,18 @@ func (rv *RunnerView) renderDetail(script ScriptFile, width, height int) string 
 	if rv.savingConfig {
 		saveTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Save Configuration")
 		content.WriteString(saveTitle + "\n\n")
-		
+
 		content.WriteString("Enter filename (without .json extension):\n")
 		content.WriteString(rv.saveInput.View() + "\n\n")
-		
+
 		if rv.saveError != "" {
 			errorStyle := lipgloss.NewStyle().Foreground(errorColor)
 			content.WriteString(errorStyle.Render("Error: "+rv.saveError) + "\n\n")
 		}
-		
+
 		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
 		content.WriteString(hintStyle.Render("Press Enter to save, Esc to cancel") + "\n")
-		
+
 		return detailStyle.Render(content.String())
 	}
 
