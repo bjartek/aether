@@ -61,7 +61,7 @@ func main() {
 	aetherLogger := logs.WithComponent(logger, "aether")
 	emulatorLogger := logs.WithComponent(logger, "emulator")
 	walletLogger := logs.WithComponent(logger, "dev-wallet")
-	gatewayLogger := logs.WithComponent(logger, "evm-gateway")
+	gatewayLogger := logs.WithComponent(logger, "evm-gateway").Level(zerolog.ErrorLevel)
 
 	if *logFile != "" {
 		aetherLogger.Info().Str("file", *logFile).Msg("Logging to file for debugging")
