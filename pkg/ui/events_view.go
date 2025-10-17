@@ -167,84 +167,6 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// formatEventFieldValue formats an event field value for display
-func (ev *EventsView) formatEventFieldValue(val interface{}) string {
-	switch v := val.(type) {
-	case []uint8:
-		// Convert uint8 array to hex string if in human-friendly mode
-		if !ev.showRawAddresses && len(v) > 0 {
-			return "0x" + fmt.Sprintf("%x", v)
-		}
-		return fmt.Sprintf("%v", v)
-	case []interface{}:
-		// Check if it's an array of numbers (likely a byte array)
-		if len(v) > 0 && !ev.showRawAddresses {
-			// Try to convert to bytes
-			bytes := make([]byte, 0, len(v))
-			isBytes := true
-			for _, item := range v {
-				switch num := item.(type) {
-				case float64:
-					if num >= 0 && num <= 255 && num == float64(int(num)) {
-						bytes = append(bytes, byte(num))
-					} else {
-						isBytes = false
-					}
-				case int:
-					if num >= 0 && num <= 255 {
-						bytes = append(bytes, byte(num))
-					} else {
-						isBytes = false
-					}
-				default:
-					isBytes = false
-				}
-				if !isBytes {
-					break
-				}
-			}
-			if isBytes && len(bytes) > 0 {
-				return "0x" + fmt.Sprintf("%x", bytes)
-			}
-		}
-		return fmt.Sprintf("%v", v)
-	case map[string]interface{}:
-		// Handle maps - format as key: value pairs with sorted keys
-		if len(v) == 0 {
-			return "{}"
-		}
-		// Sort keys for consistent ordering
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		var parts []string
-		for _, k := range keys {
-			// Recursively format map values
-			formattedVal := ev.formatEventFieldValue(v[k])
-			parts = append(parts, fmt.Sprintf("%s: %s", k, formattedVal))
-		}
-		return "{" + strings.Join(parts, ", ") + "}"
-	case string:
-		// Check if it's an address and format accordingly
-		if !ev.showRawAddresses && ev.accountRegistry != nil && strings.HasPrefix(v, "0x") && len(v) == 18 {
-			// For event fields, show only the friendly name
-			return ev.accountRegistry.GetName(v)
-		}
-		return v
-	default:
-		valStr := fmt.Sprintf("%v", v)
-		// Check if the string representation looks like an address
-		if !ev.showRawAddresses && ev.accountRegistry != nil && strings.HasPrefix(valStr, "0x") && len(valStr) == 18 {
-			// For event fields, show only the friendly name
-			return ev.accountRegistry.GetName(valStr)
-		}
-		return valStr
-	}
-}
-
 // AddEvent adds a new event from transaction processing
 func (ev *EventsView) AddEvent(blockHeight uint64, blockID string, txID string, txIndex int, event overflow.OverflowEvent, eventIndex int, registry *aether.AccountRegistry) {
 	ev.mu.Lock()
@@ -573,9 +495,8 @@ func (ev *EventsView) renderEventDetailText(event EventData) string {
 			val := event.Fields[key]
 			paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
-			// Format value using helper function
-			valStr := ev.formatEventFieldValue(val)
-
+			// Format value with proper base indentation (4 spaces = 2 for field + 2 for nesting)
+			valStr := FormatFieldValue(val, "    ")
 			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedKey),
 				valueStyleDetail.Render(valStr)))
@@ -653,8 +574,9 @@ func (ev *EventsView) renderEventDetailCondensed(event EventData, maxLines int) 
 			}
 			val := event.Fields[key]
 			paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
-			valStr := ev.formatEventFieldValue(val)
 
+			// Format value with proper base indentation (4 spaces = 2 for field + 2 for nesting)
+			valStr := FormatFieldValue(val, "    ")
 			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedKey),
 				valueStyleDetail.Render(valStr)))

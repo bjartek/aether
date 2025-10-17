@@ -9,6 +9,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// LogLineMsg is sent when a new log line is available
+type LogLineMsg struct {
+	Line string
+	Err  error
+}
+
 // LogWriter is a custom io.Writer that sends log lines to a channel or Bubble Tea program.
 // It buffers logs to a channel before the Tea program is ready, then drains them when attached.
 type LogWriter struct {

@@ -134,3 +134,4 @@ This does not work atm, debuging with mpeter
 - [ ] scheduled transaction
 - [ ] navigating in runner is slow since we have to step through arguments
 - [ ] make a config file
+- [ ] not sure if fees are filtered correctly on emulator...

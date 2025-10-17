@@ -27,7 +27,7 @@ import (
 // ArgumentData holds argument name and value for display
 type ArgumentData struct {
 	Name  string
-	Value string
+	Value interface{} // Keep as interface{} for proper formatting
 }
 
 // EVMTransactionData wraps all data returned from decoding an EVM transaction event
@@ -231,84 +231,6 @@ func truncateHex(s string, startLen, endLen int) string {
 	return s[:startLen] + "..." + s[len(s)-endLen:]
 }
 
-// formatEventFieldValue formats an event field value for display
-func (tv *TransactionsView) formatEventFieldValue(val interface{}) string {
-	switch v := val.(type) {
-	case []uint8:
-		// Convert uint8 array to hex string if in human-friendly mode
-		if !tv.showRawAddresses && len(v) > 0 {
-			return "0x" + fmt.Sprintf("%x", v)
-		}
-		return fmt.Sprintf("%v", v)
-	case []interface{}:
-		// Check if it's an array of numbers (likely a byte array)
-		if len(v) > 0 && !tv.showRawAddresses {
-			// Try to convert to bytes
-			bytes := make([]byte, 0, len(v))
-			isBytes := true
-			for _, item := range v {
-				switch num := item.(type) {
-				case float64:
-					if num >= 0 && num <= 255 && num == float64(int(num)) {
-						bytes = append(bytes, byte(num))
-					} else {
-						isBytes = false
-					}
-				case int:
-					if num >= 0 && num <= 255 {
-						bytes = append(bytes, byte(num))
-					} else {
-						isBytes = false
-					}
-				default:
-					isBytes = false
-				}
-				if !isBytes {
-					break
-				}
-			}
-			if isBytes && len(bytes) > 0 {
-				return "0x" + fmt.Sprintf("%x", bytes)
-			}
-		}
-		return fmt.Sprintf("%v", v)
-	case map[string]interface{}:
-		// Handle maps - format as key: value pairs with sorted keys
-		if len(v) == 0 {
-			return "{}"
-		}
-		// Sort keys for consistent ordering
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		var parts []string
-		for _, k := range keys {
-			// Recursively format map values
-			formattedVal := tv.formatEventFieldValue(v[k])
-			parts = append(parts, fmt.Sprintf("%s: %s", k, formattedVal))
-		}
-		return "{" + strings.Join(parts, ", ") + "}"
-	case string:
-		// Check if it's an address and format accordingly
-		if !tv.showRawAddresses && tv.accountRegistry != nil && strings.HasPrefix(v, "0x") && len(v) == 18 {
-			// For event fields, show only the friendly name
-			return tv.accountRegistry.GetName(v)
-		}
-		return v
-	default:
-		valStr := fmt.Sprintf("%v", v)
-		// Check if the string representation looks like an address
-		if !tv.showRawAddresses && tv.accountRegistry != nil && strings.HasPrefix(valStr, "0x") && len(valStr) == 18 {
-			// For event fields, show only the friendly name
-			return tv.accountRegistry.GetName(valStr)
-		}
-		return valStr
-	}
-}
-
 // AddTransaction adds a new transaction from an OverflowTransaction
 func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, ot overflow.OverflowTransaction, registry *aether.AccountRegistry) {
 	tv.mu.Lock()
@@ -364,7 +286,7 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 		}
 		argData := ArgumentData{
 			Name:  name,
-			Value: fmt.Sprintf("%v", arg.Value),
+			Value: arg.Value, // Keep as interface{} for proper formatting
 		}
 		args = append(args, argData)
 	}
@@ -785,7 +707,8 @@ func (tv *TransactionsView) saveTransaction(filename string, tx TransactionData)
 
 	// Populate arguments from transaction data
 	for _, arg := range tx.Arguments {
-		config.Arguments[arg.Name] = arg.Value
+		// Convert to string for JSON config
+		config.Arguments[arg.Name] = fmt.Sprintf("%v", arg.Value)
 	}
 
 	// Save JSON config file
@@ -1004,9 +927,8 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 					val := event.Fields[key]
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
-					// Format value using helper function
-					valStr := tv.formatEventFieldValue(val)
-
+					// Format value with proper base indentation (7 spaces = 5 for event indent + 2 for nesting)
+					valStr := FormatFieldValue(val, "       ")
 					details.WriteString(fmt.Sprintf("     %s: %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))
@@ -1087,12 +1009,8 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 		for _, arg := range tx.Arguments {
 			paddedName := fmt.Sprintf("%-*s", maxNameLen, arg.Name)
 
-			// Format value - check if it's an address and show friendly name
-			valStr := arg.Value
-			if !tv.showRawAddresses && tv.accountRegistry != nil && strings.HasPrefix(valStr, "0x") && len(valStr) == 18 {
-				// Looks like an address, show only the friendly name
-				valStr = tv.accountRegistry.GetName(valStr)
-			}
+			// Format value with proper indentation (4 spaces = 2 for arg + 2 for nesting)
+			valStr := FormatFieldValue(arg.Value, "    ")
 
 			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedName),
@@ -1257,9 +1175,8 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 					val := event.Fields[key]
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
-					// Format value using helper function
-					valStr := tv.formatEventFieldValue(val)
-
+					// Format value with proper base indentation (7 spaces = 5 for event indent + 2 for nesting)
+					valStr := FormatFieldValue(val, "       ")
 					details.WriteString(fmt.Sprintf("     %s: %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))

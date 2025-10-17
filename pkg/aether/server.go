@@ -57,7 +57,13 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		return fmt.Errorf("neither %q nor %q exists", path1, path2)
 	}
 
-	//TODO: make the underflow values configurable
+	// Configure underflow options for human-friendly output
+	underflowOptions := underflow.Options{
+		ByteArrayAsHex:             true,
+		ShowUnixTimestampsAsString: true,
+		TimestampFormat:            "2006-01-02 15:04:05 UTC",
+	}
+
 	// Initialize overflow based on network mode
 	var o *overflow.OverflowState
 	if a.Network == "" {
@@ -68,9 +74,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			overflow.WithReturnErrors(),
 			overflow.WithTransactionFolderName("aether"),
 			overflow.WithBasePath(basePath),
-			overflow.WithUnderflowOptions(underflow.Options{
-				ByteArrayAsHex: true,
-			}))
+			overflow.WithUnderflowOptions(underflowOptions))
 	} else {
 		// Network mode (testnet or mainnet)
 		a.Logger.Info().Str("network", a.Network).Msg("Initializing overflow for network")
@@ -80,9 +84,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			overflow.WithReturnErrors(),
 			overflow.WithTransactionFolderName("aether"),
 			overflow.WithBasePath(basePath),
-			overflow.WithUnderflowOptions(underflow.Options{
-				ByteArrayAsHex: true,
-			}))
+			overflow.WithUnderflowOptions(underflowOptions))
 	}
 
 	// Only create accounts in local mode
@@ -103,7 +105,31 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		Interface("registry", dump).
 		Msg("Initialized account registry")
 
-	// Create second overflow instance for runner view
+	// Update underflow options with account registry for human-friendly names
+	underflowOptions.HumanReadableAddresses = a.AccountRegistry.addressToName
+
+	// Recreate the first overflow instance with updated underflow options
+	// This ensures init transactions also have human-readable addresses
+	if a.Network == "" {
+		o = overflow.Overflow(
+			overflow.WithExistingEmulator(),
+			overflow.WithLogNone(),
+			overflow.WithReturnErrors(),
+			overflow.WithTransactionFolderName("aether"),
+			overflow.WithBasePath(basePath),
+			overflow.WithUnderflowOptions(underflowOptions))
+	} else {
+		o = overflow.Overflow(
+			overflow.WithNetwork(a.Network),
+			overflow.WithLogNone(),
+			overflow.WithReturnErrors(),
+			overflow.WithTransactionFolderName("aether"),
+			overflow.WithBasePath(basePath),
+			overflow.WithUnderflowOptions(underflowOptions))
+	}
+	a.Overflow = o
+
+	// Create second overflow instance for runner view with same underflow options
 	var oR *overflow.OverflowState
 	if a.Network == "" {
 		oR = overflow.Overflow(
@@ -111,18 +137,14 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			overflow.WithLogNone(),
 			overflow.WithReturnErrors(),
 			overflow.WithBasePath(basePath),
-			overflow.WithUnderflowOptions(underflow.Options{
-				ByteArrayAsHex: true,
-			}))
+			overflow.WithUnderflowOptions(underflowOptions))
 	} else {
 		oR = overflow.Overflow(
 			overflow.WithNetwork(a.Network),
 			overflow.WithLogNone(),
 			overflow.WithReturnErrors(),
 			overflow.WithBasePath(basePath),
-			overflow.WithUnderflowOptions(underflow.Options{
-				ByteArrayAsHex: true,
-			}))
+			overflow.WithUnderflowOptions(underflowOptions))
 	}
 
 	// Send overflow ready message to UI

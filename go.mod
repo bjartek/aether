@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/bjartek/overflow/v2 v2.10.1
-	github.com/bjartek/underflow v1.16.0
+	github.com/bjartek/underflow v1.17.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
