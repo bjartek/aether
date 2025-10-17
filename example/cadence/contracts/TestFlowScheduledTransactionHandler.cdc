@@ -35,7 +35,8 @@ access(all) contract TestFlowScheduledTransactionHandler {
         /// The regular success case simply appends the transaction ID to the succeededTransactions array
         access(FlowTransactionScheduler.Execute) 
         fun executeTransaction(id: UInt64, data: AnyStruct?) {
-            panic("foo")
+            //panic("foo")
+            log("foo")
         }
     }
 
