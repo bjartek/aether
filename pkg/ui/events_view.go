@@ -496,7 +496,7 @@ func (ev *EventsView) renderEventDetailText(event EventData) string {
 			paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
 			// Format value with proper base indentation (4 spaces = 2 for field + 2 for nesting)
-			valStr := FormatFieldValue(val, "    ")
+			valStr := FormatFieldValueWithRegistry(val, "    ", ev.accountRegistry, ev.showRawAddresses)
 			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedKey),
 				valueStyleDetail.Render(valStr)))
@@ -576,7 +576,7 @@ func (ev *EventsView) renderEventDetailCondensed(event EventData, maxLines int) 
 			paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
 			// Format value with proper base indentation (4 spaces = 2 for field + 2 for nesting)
-			valStr := FormatFieldValue(val, "    ")
+			valStr := FormatFieldValueWithRegistry(val, "    ", ev.accountRegistry, ev.showRawAddresses)
 			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedKey),
 				valueStyleDetail.Render(valStr)))

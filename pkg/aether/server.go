@@ -105,30 +105,6 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 		Interface("registry", dump).
 		Msg("Initialized account registry")
 
-	// Update underflow options with account registry for human-friendly names
-	underflowOptions.HumanReadableAddresses = a.AccountRegistry.addressToName
-
-	// Recreate the first overflow instance with updated underflow options
-	// This ensures init transactions also have human-readable addresses
-	if a.Network == "" {
-		o = overflow.Overflow(
-			overflow.WithExistingEmulator(),
-			overflow.WithLogNone(),
-			overflow.WithReturnErrors(),
-			overflow.WithTransactionFolderName("aether"),
-			overflow.WithBasePath(basePath),
-			overflow.WithUnderflowOptions(underflowOptions))
-	} else {
-		o = overflow.Overflow(
-			overflow.WithNetwork(a.Network),
-			overflow.WithLogNone(),
-			overflow.WithReturnErrors(),
-			overflow.WithTransactionFolderName("aether"),
-			overflow.WithBasePath(basePath),
-			overflow.WithUnderflowOptions(underflowOptions))
-	}
-	a.Overflow = o
-
 	// Create second overflow instance for runner view with same underflow options
 	var oR *overflow.OverflowState
 	if a.Network == "" {

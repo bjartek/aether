@@ -928,7 +928,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
 					// Format value with proper base indentation (7 spaces = 5 for event indent + 2 for nesting)
-					valStr := FormatFieldValue(val, "       ")
+					valStr := FormatFieldValueWithRegistry(val, "       ", tv.accountRegistry, tv.showRawAddresses)
 					details.WriteString(fmt.Sprintf("     %s: %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))
@@ -1010,7 +1010,7 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 			paddedName := fmt.Sprintf("%-*s", maxNameLen, arg.Name)
 
 			// Format value with proper indentation (4 spaces = 2 for arg + 2 for nesting)
-			valStr := FormatFieldValue(arg.Value, "    ")
+			valStr := FormatFieldValueWithRegistry(arg.Value, "    ", tv.accountRegistry, tv.showRawAddresses)
 
 			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedName),
@@ -1176,7 +1176,7 @@ func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData,
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
 					// Format value with proper base indentation (7 spaces = 5 for event indent + 2 for nesting)
-					valStr := FormatFieldValue(val, "       ")
+					valStr := FormatFieldValueWithRegistry(val, "       ", tv.accountRegistry, tv.showRawAddresses)
 					details.WriteString(fmt.Sprintf("     %s: %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))

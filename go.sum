@@ -112,8 +112,6 @@ github.com/bjartek/flow-evm-gateway v1.3.2-0.20251016202144-8e63505569d7 h1:fC2T
 github.com/bjartek/flow-evm-gateway v1.3.2-0.20251016202144-8e63505569d7/go.mod h1:psyw8CPPFehNgNBlRiq8N9lxSDmOdNpB1SvZvskZUp0=
 github.com/bjartek/overflow/v2 v2.10.1 h1:gBxdwzcZg/lY8W7KuVJVzW9UmIAQrLUOpnYDGsjwsKs=
 github.com/bjartek/overflow/v2 v2.10.1/go.mod h1:pBI8ldvKEWzpbMhrv1Lcg37nEvvptHO65/YyK+NCYT0=
-github.com/bjartek/underflow v1.16.0 h1:+qwPsCsDDDkWoOdEDoHOvF0tK8RAAy4+TyLQ9id1/hk=
-github.com/bjartek/underflow v1.16.0/go.mod h1:/qptaHiyg5rAmYd4hkwSqLAHvMqsOVaj+81TmsST50k=
 github.com/bjartek/underflow v1.17.0 h1:BEMmHKbNq5D4hgLD4IcnZDU7JsRsIYoXBSBIrx3X3Jk=
 github.com/bjartek/underflow v1.17.0/go.mod h1:/qptaHiyg5rAmYd4hkwSqLAHvMqsOVaj+81TmsST50k=
 github.com/btcsuite/btcd/btcec/v2 v2.3.4 h1:3EJjcN70HCu/mwqlUsGK8GcNVyLVxFDlWurTXGPFfiQ=
