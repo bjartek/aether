@@ -60,7 +60,7 @@ func DefaultConfig() *Config {
 				MaxLogLines:     10000,
 			},
 			Layout: LayoutConfig{
-				DefaultView: "transactions",
+				DefaultView: "dashboard",
 				Transactions: ViewLayoutConfig{
 					TableWidthPercent:  40,
 					DetailWidthPercent: 60,
@@ -71,9 +71,9 @@ func DefaultConfig() *Config {
 				},
 			},
 			Defaults: DefaultsConfig{
-				ShowEventFields:  false,
+				ShowEventFields:  true,
 				ShowRawAddresses: false,
-				FullDetailMode:   false,
+				FullDetailMode:   true,
 			},
 			Filter: FilterConfig{
 				CharLimit: 50,

@@ -132,16 +132,6 @@ func (lv *LogsView) applyFilter() {
 
 // updateHeaderHeight calculates the header height based on current state
 func (lv *LogsView) updateHeaderHeight() {
-	// Render the header components exactly as they appear in View() to measure actual height
-	headerStyle := lipgloss.NewStyle().
-		Foreground(primaryColor).
-		Bold(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderBottom(true).
-		BorderForeground(mutedColor)
-	
-	header := headerStyle.Render("Application Logs") + "\n"
-	
 	// Show filter bar if in filter mode
 	var filterBar string
 	if lv.filterMode {
@@ -158,9 +148,8 @@ func (lv *LogsView) updateHeaderHeight() {
 		filterBar = filterStyle.Render(fmt.Sprintf("Filter: '%s' (%d/%d lines) • Press / to edit, Esc to clear", lv.filterText, matchCount, totalCount)) + "\n"
 	}
 	
-	// Measure actual rendered height (header + optional filter bar)
-	fullHeader := header + filterBar
-	lv.headerHeight = lipgloss.Height(fullHeader)
+	// Measure actual rendered height (optional filter bar only)
+	lv.headerHeight = lipgloss.Height(filterBar)
 }
 
 // Update handles messages for the logs view.
@@ -323,16 +312,6 @@ func (lv *LogsView) View() string {
 			Render("Waiting for log entries...")
 	}
 
-	// Render sticky header
-	headerStyle := lipgloss.NewStyle().
-		Foreground(primaryColor).
-		Bold(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderBottom(true).
-		BorderForeground(mutedColor)
-	
-	header := headerStyle.Render("Application Logs") + "\n"
-
 	// Show filter input if in filter mode
 	var filterBar string
 	if lv.filterMode {
@@ -353,22 +332,8 @@ func (lv *LogsView) View() string {
 	// The viewport internally manages which lines are visible based on its height and YOffset
 	viewportContent := lv.viewport.View()
 	
-	// Combine header, filter bar, and viewport
-	fullContent := header + filterBar + viewportContent
-	
-	// CRITICAL FIX: Force content into exact height box using Place
-	// This absolutely prevents overflow by truncating if needed
-	if lv.totalHeight > 0 && lv.viewport.Width > 0 {
-		// Use Place to put content in an exact-sized box
-		// If content is too tall, it will be truncated from bottom
-		fullContent = lipgloss.Place(
-			lv.viewport.Width,
-			lv.totalHeight,
-			lipgloss.Left,
-			lipgloss.Top,
-			fullContent,
-		)
-	}
+	// Combine filter bar and viewport
+	fullContent := filterBar + viewportContent
 	
 	return fullContent
 }

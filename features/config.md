@@ -291,7 +291,7 @@ ui:
     max_events: int
     max_log_lines: int
   layout:
-    default_view: transactions | events | runner
+    default_view: dashboard | transactions | events | runner
     transactions:
       table_width_percent: int
       detail_width_percent: int

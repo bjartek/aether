@@ -162,7 +162,7 @@ ui:
     max_events: 10000
     max_log_lines: 10000
   layout:
-    default_view: transactions  # transactions, events, or runner
+    default_view: dashboard  # dashboard, transactions, events, or runner
     transactions:
       table_width_percent: 40
       detail_width_percent: 60

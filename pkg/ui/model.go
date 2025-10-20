@@ -70,6 +70,8 @@ func NewModelWithConfig(cfg *config.Config) Model {
 	var activeTab int
 	if cfg != nil {
 		switch cfg.UI.Layout.DefaultView {
+		case "dashboard":
+			activeTab = 0
 		case "transactions":
 			activeTab = 1
 		case "events":

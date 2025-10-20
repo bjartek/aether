@@ -137,12 +137,13 @@ func validateLogLevels(levels LogLevelConfig) error {
 func validateUI(ui UIConfig) error {
 	// Validate default view
 	validViews := map[string]bool{
+		"dashboard":    true,
 		"transactions": true,
 		"events":       true,
 		"runner":       true,
 	}
 	if !validViews[ui.Layout.DefaultView] {
-		return fmt.Errorf("invalid default view '%s': must be one of: transactions, events, runner", ui.Layout.DefaultView)
+		return fmt.Errorf("invalid default view '%s': must be one of: dashboard, transactions, events, runner", ui.Layout.DefaultView)
 	}
 
 	// Validate percentages

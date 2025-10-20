@@ -86,8 +86,8 @@ ui:
   
   # Layout configuration
   layout:
-    # Default view on startup: transactions, events, or runner
-    default_view: transactions
+    # Default view on startup: dashboard, transactions, events, or runner
+    default_view: dashboard
     
     # Transactions view split (percentages)
     transactions:
