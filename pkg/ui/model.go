@@ -94,7 +94,7 @@ func NewModelWithConfig(cfg *config.Config) Model {
 		dashboardView:       NewDashboardView(),
 		transactionsView:    NewTransactionsViewWithConfig(cfg),
 		eventsView:          NewEventsViewWithConfig(cfg),
-		runnerView:          NewRunnerView(),
+		runnerView:          NewRunnerViewWithConfig(cfg),
 		logsView:            NewLogsViewWithConfig(cfg),
 		dashboardTabIndex:   0, // Index of the Dashboard tab
 		transactionsTabIndex: 1, // Index of the Transactions tab
@@ -505,48 +505,6 @@ func (m Model) renderContent(height int) string {
 		Render(viewContent)
 }
 
-// wrapText wraps text to fit within maxWidth, breaking at word boundaries.
-func wrapText(text string, maxWidth int) string {
-	if len(text) <= maxWidth {
-		return text
-	}
-	
-	// Split by bullet points to keep them together
-	parts := strings.Split(text, " • ")
-	var lines []string
-	var currentLine string
-	
-	for i, part := range parts {
-		// Add bullet back except for first item
-		itemText := part
-		if i > 0 {
-			itemText = "• " + part
-		}
-		
-		// Check if adding this item would exceed width
-		if currentLine == "" {
-			currentLine = itemText
-		} else if len(currentLine) + 3 + len(part) <= maxWidth {
-			currentLine += " • " + part
-		} else {
-			// Current line is full, start new line
-			lines = append(lines, currentLine)
-			currentLine = itemText
-		}
-	}
-	
-	// Add the last line
-	if currentLine != "" {
-		lines = append(lines, currentLine)
-	}
-	
-	// Indent continuation lines for better readability
-	for i := 1; i < len(lines); i++ {
-		lines[i] = "      " + lines[i]
-	}
-	
-	return strings.Join(lines, "\n")
-}
 
 // getActiveKeyMap returns the combined KeyMap for the current view.
 func (m Model) getActiveKeyMap() help.KeyMap {

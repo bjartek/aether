@@ -108,6 +108,7 @@ type LayoutConfig struct {
 	DefaultView  string           `mapstructure:"default_view"`
 	Transactions ViewLayoutConfig `mapstructure:"transactions"`
 	Events       ViewLayoutConfig `mapstructure:"events"`
+	Runner       ViewLayoutConfig `mapstructure:"runner"`
 }
 
 // ViewLayoutConfig contains split ratios for a view

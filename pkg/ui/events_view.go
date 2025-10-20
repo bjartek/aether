@@ -62,8 +62,8 @@ func DefaultEventsKeyMap() EventsKeyMap {
 			key.WithHelp("G/end", "go to bottom"),
 		),
 		ToggleFullDetail: key.NewBinding(
-			key.WithKeys("tab"),
-			key.WithHelp("tab", "toggle full detail"),
+			key.WithKeys("enter", " "),
+			key.WithHelp("enter/space", "toggle detail"),
 		),
 		ToggleRawAddresses: key.NewBinding(
 			key.WithKeys("a"),
@@ -78,22 +78,25 @@ func DefaultEventsKeyMap() EventsKeyMap {
 
 // EventsView manages the events table and detail display
 type EventsView struct {
-	mu               sync.RWMutex
-	table            table.Model
-	detailViewport   viewport.Model
-	filterInput      textinput.Model
-	keys             EventsKeyMap
-	ready            bool
-	events           []EventData
-	filteredEvents   []EventData
-	maxEvents        int
-	width            int
-	height           int
-	fullDetailMode   bool   // Toggle between split and full-screen detail view
-	showRawAddresses bool   // Toggle showing raw addresses vs friendly names
-	filterMode       bool   // Whether filter input is active
-	filterText       string // Current filter text
-	accountRegistry  *aether.AccountRegistry
+	mu                  sync.RWMutex
+	table               table.Model
+	detailViewport      viewport.Model // For full detail mode
+	splitDetailViewport viewport.Model // For split view detail panel
+	filterInput         textinput.Model
+	keys                EventsKeyMap
+	ready               bool
+	events              []EventData
+	filteredEvents      []EventData
+	maxEvents           int
+	width               int
+	height              int
+	tableWidthPercent   int    // Configurable table width percentage
+	detailWidthPercent  int    // Configurable detail width percentage
+	fullDetailMode      bool   // Toggle between split and full-screen detail view
+	showRawAddresses    bool   // Toggle showing raw addresses vs friendly names
+	filterMode          bool   // Whether filter input is active
+	filterText          string // Current filter text
+	accountRegistry     *aether.AccountRegistry
 }
 
 // NewEventsView creates a new events view with default settings
@@ -130,9 +133,13 @@ func NewEventsViewWithConfig(cfg *config.Config) *EventsView {
 
 	t.SetStyles(s)
 
-	// Create viewport for detail view
+	// Create viewport for full detail mode
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle()
+
+	// Create viewport for split view detail panel
+	splitVp := viewport.New(0, 0)
+	splitVp.Style = lipgloss.NewStyle()
 
 	// Create filter input
 	filterInput := textinput.New()
@@ -151,27 +158,33 @@ func NewEventsViewWithConfig(cfg *config.Config) *EventsView {
 		maxEvents = cfg.UI.History.MaxEvents
 	}
 
-	// Get default display modes from config
-	showRawAddresses := false
-	fullDetailMode := false
-	if cfg != nil {
-		showRawAddresses = cfg.UI.Defaults.ShowRawAddresses
-		fullDetailMode = cfg.UI.Defaults.FullDetailMode
+	// Get default display modes and layout from config
+	// Use config defaults, or fallback to DefaultConfig if no config provided
+	if cfg == nil {
+		cfg = config.DefaultConfig()
 	}
+	
+	showRawAddresses := cfg.UI.Defaults.ShowRawAddresses
+	fullDetailMode := cfg.UI.Defaults.FullDetailMode
+	tableWidthPercent := cfg.UI.Layout.Events.TableWidthPercent
+	detailWidthPercent := cfg.UI.Layout.Events.DetailWidthPercent
 
 	return &EventsView{
-		table:            t,
-		detailViewport:   vp,
-		filterInput:      filterInput,
-		keys:             DefaultEventsKeyMap(),
-		ready:            false,
-		events:           make([]EventData, 0, maxEvents),
-		filteredEvents:   make([]EventData, 0),
-		maxEvents:        maxEvents,
-		fullDetailMode:   fullDetailMode,
-		showRawAddresses: showRawAddresses,
-		filterMode:       false,
-		filterText:       "",
+		table:               t,
+		detailViewport:      vp,
+		splitDetailViewport: splitVp,
+		filterInput:         filterInput,
+		keys:                DefaultEventsKeyMap(),
+		ready:               false,
+		events:              make([]EventData, 0, maxEvents),
+		filteredEvents:      make([]EventData, 0),
+		maxEvents:           maxEvents,
+		tableWidthPercent:   tableWidthPercent,
+		detailWidthPercent:  detailWidthPercent,
+		fullDetailMode:      fullDetailMode,
+		showRawAddresses:    showRawAddresses,
+		filterMode:          false,
+		filterText:          "",
 	}
 }
 
@@ -307,8 +320,9 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if !ev.ready {
 			ev.ready = true
 		}
-		// Split width: 60% table, 40% details (events have longer names)
-		tableWidth := int(float64(width) * 0.6)
+		// Split width using configured percentages
+		tableWidth := int(float64(width) * float64(ev.tableWidthPercent) / 100.0)
+		detailWidth := max(10, width-tableWidth-2)
 		ev.table.SetWidth(tableWidth)
 		ev.table.SetHeight(height)
 
@@ -320,6 +334,10 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		hintHeight := lipgloss.Height(hint) + 2 // +2 for spacing
 		ev.detailViewport.Width = width
 		ev.detailViewport.Height = height - hintHeight
+
+		// Update split view detail viewport size
+		ev.splitDetailViewport.Width = detailWidth
+		ev.splitDetailViewport.Height = height
 
 	case tea.KeyMsg:
 		// Handle filter mode
@@ -400,8 +418,17 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			return cmd
 		} else {
 			// Otherwise pass keys to table
+			prevCursor := ev.table.Cursor()
 			var cmd tea.Cmd
 			ev.table, cmd = ev.table.Update(msg)
+			
+			// If cursor changed, update viewport content and reset scroll to top
+			newCursor := ev.table.Cursor()
+			if prevCursor != newCursor {
+				ev.mu.RLock()
+				ev.updateDetailViewport()
+				ev.mu.RUnlock()
+			}
 			return cmd
 		}
 	}
@@ -446,26 +473,35 @@ func (ev *EventsView) View() string {
 		filterBar = filterStyle.Render(fmt.Sprintf("Filter: '%s' (%d matches) • Press / to edit, Esc to clear", ev.filterText, matchCount)) + "\n"
 	}
 
-	// Split view mode - table on left, detail on right (60% table, 40% details)
-	tableWidth := int(float64(ev.width) * 0.6)
+	// Split view mode - table on left, detail on right
+	// Calculate widths using configured percentages
+	tableWidth := int(float64(ev.width) * float64(ev.tableWidthPercent) / 100.0)
 	detailWidth := max(10, ev.width-tableWidth-2) // Ensure minimum width
 
+	// Update split detail viewport with current event
 	selectedIdx := ev.table.Cursor()
-	var detailView string
 	if selectedIdx >= 0 && selectedIdx < len(ev.events) {
-		detailView = ev.renderEventDetail(ev.events[selectedIdx], detailWidth, ev.height)
+		content := ev.events[selectedIdx].preRenderedDetail
+		if content == "" {
+			content = ev.renderEventDetailText(ev.events[selectedIdx])
+		}
+		ev.splitDetailViewport.SetContent(content)
+		ev.splitDetailViewport.GotoTop() // Always scroll to top
 	} else {
-		detailView = lipgloss.NewStyle().
-			Width(detailWidth).
-			Height(ev.height).
-			Render("No event selected")
+		ev.splitDetailViewport.SetContent("No event selected")
 	}
 
 	// Style table
 	tableView := lipgloss.NewStyle().
 		Width(tableWidth).
-		Height(ev.height).
+		MaxHeight(ev.height).
 		Render(ev.table.View())
+
+	// Render split detail viewport
+	detailView := lipgloss.NewStyle().
+		Width(detailWidth).
+		Height(ev.height).
+		Render(ev.splitDetailViewport.View())
 
 	// Combine table and detail side by side
 	mainView := lipgloss.JoinHorizontal(
@@ -546,10 +582,9 @@ func (ev *EventsView) renderEventDetail(event EventData, width, height int) stri
 		content = ev.renderEventDetailText(event)
 	}
 	
-	// Wrap in a style with max dimensions
+	// Just render with padding - don't constrain width to avoid clipping
+	// The parent container will handle the width constraint
 	detailStyle := lipgloss.NewStyle().
-		Width(width).
-		MaxHeight(height).
 		Padding(1)
 
 	return detailStyle.Render(content)

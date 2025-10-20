@@ -14,12 +14,12 @@ type KeyMap struct {
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		NextTab: key.NewBinding(
-			key.WithKeys("right", "l"),
-			key.WithHelp("→/l", "next tab"),
+			key.WithKeys("tab", "right", "l"),
+			key.WithHelp("tab/→/l", "next tab/field"),
 		),
 		PrevTab: key.NewBinding(
-			key.WithKeys("left", "h"),
-			key.WithHelp("←/h", "previous tab"),
+			key.WithKeys("shift+tab", "left", "h"),
+			key.WithHelp("shift+tab/←/h", "prev tab/field"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),

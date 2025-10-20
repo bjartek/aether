@@ -107,8 +107,8 @@ func DefaultTransactionsKeyMap() TransactionsKeyMap {
 			key.WithHelp("G/end", "go to bottom"),
 		),
 		ToggleFullDetail: key.NewBinding(
-			key.WithKeys("tab"),
-			key.WithHelp("tab", "toggle full detail"),
+			key.WithKeys("enter", " "),
+			key.WithHelp("enter/space", "toggle detail"),
 		),
 		ToggleEventFields: key.NewBinding(
 			key.WithKeys("e"),
@@ -131,27 +131,30 @@ func DefaultTransactionsKeyMap() TransactionsKeyMap {
 
 // TransactionsView manages the transactions table and detail display
 type TransactionsView struct {
-	mu               sync.RWMutex
-	table            table.Model
-	detailViewport   viewport.Model
-	filterInput      textinput.Model
-	saveInput        textinput.Model // Input for save filename
-	keys             TransactionsKeyMap
-	ready            bool
-	transactions     []TransactionData
-	filteredTxs      []TransactionData
-	maxTxs           int
-	width            int
-	height           int
-	fullDetailMode   bool   // Toggle between split and full-screen detail view
-	showEventFields  bool   // Toggle showing event field details
-	showRawAddresses bool   // Toggle showing raw addresses vs friendly names
-	filterMode       bool   // Whether filter input is active
-	filterText       string // Current filter text
-	savingMode       bool   // Whether save dialog is active
-	saveError        string // Error message from last save attempt
-	saveSuccess      string // Success message from last save
-	accountRegistry  *aether.AccountRegistry
+	mu                  sync.RWMutex
+	table               table.Model
+	detailViewport      viewport.Model // For full detail mode
+	splitDetailViewport viewport.Model // For split view detail panel
+	filterInput         textinput.Model
+	saveInput           textinput.Model // Input for save filename
+	keys                TransactionsKeyMap
+	ready               bool
+	transactions        []TransactionData
+	filteredTxs         []TransactionData
+	maxTxs              int
+	width               int
+	height              int
+	tableWidthPercent   int    // Configurable table width percentage
+	detailWidthPercent  int    // Configurable detail width percentage
+	fullDetailMode      bool   // Toggle between split and full-screen detail view
+	showEventFields     bool   // Toggle showing event field details
+	showRawAddresses    bool   // Toggle showing raw addresses vs friendly names
+	filterMode          bool   // Whether filter input is active
+	filterText          string // Current filter text
+	savingMode          bool   // Whether save dialog is active
+	saveError           string // Error message from last save attempt
+	saveSuccess         string // Success message from last save
+	accountRegistry     *aether.AccountRegistry
 }
 
 // NewTransactionsView creates a new transactions view with default settings
@@ -189,9 +192,13 @@ func NewTransactionsViewWithConfig(cfg *config.Config) *TransactionsView {
 
 	t.SetStyles(s)
 
-	// Create viewport for detail view
+	// Create viewport for full detail mode
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle()
+
+	// Create viewport for split view detail panel
+	splitVp := viewport.New(0, 0)
+	splitVp.Style = lipgloss.NewStyle()
 
 	// Create filter input
 	filterInput := textinput.New()
@@ -221,32 +228,37 @@ func NewTransactionsViewWithConfig(cfg *config.Config) *TransactionsView {
 		maxTransactions = cfg.UI.History.MaxTransactions
 	}
 
-	// Get default display modes from config
-	showEventFields := false
-	showRawAddresses := false
-	fullDetailMode := false
-	if cfg != nil {
-		showEventFields = cfg.UI.Defaults.ShowEventFields
-		showRawAddresses = cfg.UI.Defaults.ShowRawAddresses
-		fullDetailMode = cfg.UI.Defaults.FullDetailMode
+	// Get default display modes and layout from config
+	// Use config defaults, or fallback to DefaultConfig if no config provided
+	if cfg == nil {
+		cfg = config.DefaultConfig()
 	}
+	
+	showEventFields := cfg.UI.Defaults.ShowEventFields
+	showRawAddresses := cfg.UI.Defaults.ShowRawAddresses
+	fullDetailMode := cfg.UI.Defaults.FullDetailMode
+	tableWidthPercent := cfg.UI.Layout.Transactions.TableWidthPercent
+	detailWidthPercent := cfg.UI.Layout.Transactions.DetailWidthPercent
 
 	return &TransactionsView{
-		table:            t,
-		detailViewport:   vp,
-		filterInput:      filterInput,
-		saveInput:        saveInput,
-		keys:             DefaultTransactionsKeyMap(),
-		ready:            false,
-		transactions:     make([]TransactionData, 0, maxTransactions),
-		filteredTxs:      make([]TransactionData, 0),
-		maxTxs:           maxTransactions,
-		fullDetailMode:   fullDetailMode,
-		showEventFields:  showEventFields,
-		showRawAddresses: showRawAddresses,
-		filterMode:       false,
-		filterText:       "",
-		savingMode:       false,
+		table:               t,
+		detailViewport:      vp,
+		splitDetailViewport: splitVp,
+		filterInput:         filterInput,
+		saveInput:           saveInput,
+		keys:                DefaultTransactionsKeyMap(),
+		ready:               false,
+		transactions:        make([]TransactionData, 0, maxTransactions),
+		filteredTxs:         make([]TransactionData, 0),
+		maxTxs:              maxTransactions,
+		tableWidthPercent:   tableWidthPercent,
+		detailWidthPercent:  detailWidthPercent,
+		fullDetailMode:      fullDetailMode,
+		showEventFields:     showEventFields,
+		showRawAddresses:    showRawAddresses,
+		filterMode:          false,
+		filterText:          "",
+		savingMode:          false,
 	}
 }
 func (tv *TransactionsView) Init() tea.Cmd {
@@ -287,13 +299,6 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 	if ot.Payer != "" {
 		payer = ot.Payer
 	}
-
-	// Debug: Log addresses if registry is available
-	if registry != nil {
-		// TODO: Remove debug logging once address mapping is working
-		// This helps diagnose why friendly names aren't showing
-	}
-
 	// Determine status
 	status := "Unknown"
 	if ot.Error != nil {
@@ -518,8 +523,9 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if !tv.ready {
 			tv.ready = true
 		}
-		// Split width: 40% table, 60% details (wider details pane)
-		tableWidth := int(float64(width) * 0.4)
+		// Split width using configured percentages
+		tableWidth := int(float64(width) * float64(tv.tableWidthPercent) / 100.0)
+		detailWidth := max(10, width-tableWidth-2)
 		tv.table.SetWidth(tableWidth)
 		tv.table.SetHeight(height)
 
@@ -531,6 +537,10 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		hintHeight := lipgloss.Height(hint) + 2 // +2 for spacing
 		tv.detailViewport.Width = width
 		tv.detailViewport.Height = height - hintHeight
+
+		// Update split view detail viewport size
+		tv.splitDetailViewport.Width = detailWidth
+		tv.splitDetailViewport.Height = height
 
 	case tea.KeyMsg:
 		// Handle save mode
@@ -702,8 +712,17 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			return cmd
 		} else {
 			// Otherwise pass keys to table
+			prevCursor := tv.table.Cursor()
 			var cmd tea.Cmd
 			tv.table, cmd = tv.table.Update(msg)
+			
+			// If cursor changed, update viewport content and reset scroll to top
+			newCursor := tv.table.Cursor()
+			if prevCursor != newCursor {
+				tv.mu.RLock()
+				tv.updateDetailViewport()
+				tv.mu.RUnlock()
+			}
 			return cmd
 		}
 	}
@@ -825,26 +844,34 @@ func (tv *TransactionsView) View() string {
 	}
 
 	// Split view mode - table on left, detail on right
-	// Calculate widths: 40% table, 60% details (wider details pane)
-	tableWidth := int(float64(tv.width) * 0.4)
+	// Calculate widths using configured percentages
+	tableWidth := int(float64(tv.width) * float64(tv.tableWidthPercent) / 100.0)
 	detailWidth := max(10, tv.width-tableWidth-2) // Ensure minimum width
 
+	// Update split detail viewport with current transaction
 	selectedIdx := tv.table.Cursor()
-	var detailView string
 	if selectedIdx >= 0 && selectedIdx < len(tv.transactions) {
-		detailView = tv.renderTransactionDetail(tv.transactions[selectedIdx], detailWidth, tv.height)
+		content := tv.transactions[selectedIdx].preRenderedDetail
+		if content == "" {
+			content = tv.renderTransactionDetailText(tv.transactions[selectedIdx])
+		}
+		tv.splitDetailViewport.SetContent(content)
+		tv.splitDetailViewport.GotoTop() // Always scroll to top
 	} else {
-		detailView = lipgloss.NewStyle().
-			Width(detailWidth).
-			Height(tv.height).
-			Render("No transaction selected")
+		tv.splitDetailViewport.SetContent("No transaction selected")
 	}
 
 	// Style table
 	tableView := lipgloss.NewStyle().
 		Width(tableWidth).
-		Height(tv.height).
+		MaxHeight(tv.height).
 		Render(tv.table.View())
+
+	// Render split detail viewport
+	detailView := lipgloss.NewStyle().
+		Width(detailWidth).
+		Height(tv.height).
+		Render(tv.splitDetailViewport.View())
 
 	// Combine table and detail side by side
 	mainView := lipgloss.JoinHorizontal(
@@ -1078,11 +1105,10 @@ func (tv *TransactionsView) renderTransactionDetail(tx TransactionData, width, h
 		content = tv.renderTransactionDetailText(tx)
 	}
 	
-	// Wrap in a style with max dimensions
+	// Apply padding only - don't constrain width to avoid reflowing already-styled content
+	// The parent container will handle clipping
 	detailStyle := lipgloss.NewStyle().
-		Width(width).
-		MaxHeight(height).
-		Padding(1)
+		Padding(1, 2)
 
 	return detailStyle.Render(content)
 }

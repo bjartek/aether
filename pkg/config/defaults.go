@@ -66,8 +66,12 @@ func DefaultConfig() *Config {
 					DetailWidthPercent: 60,
 				},
 				Events: ViewLayoutConfig{
-					TableWidthPercent:  60,
-					DetailWidthPercent: 40,
+					TableWidthPercent:  50,
+					DetailWidthPercent: 50,
+				},
+				Runner: ViewLayoutConfig{
+					TableWidthPercent:  30,
+					DetailWidthPercent: 70,
 				},
 			},
 			Defaults: DefaultsConfig{

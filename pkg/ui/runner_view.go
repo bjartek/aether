@@ -10,6 +10,7 @@ import (
 
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/chroma"
+	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
 	"github.com/bjartek/underflow"
@@ -97,20 +98,20 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 			key.WithHelp("j/↓", "down"),
 		),
 		Enter: key.NewBinding(
-			key.WithKeys("enter", "tab"),
-			key.WithHelp("enter/tab", "edit field"),
+			key.WithKeys("enter", " "),
+			key.WithHelp("enter/space", "toggle detail"),
 		),
 		Run: key.NewBinding(
 			key.WithKeys("ctrl+r", "r"),
 			key.WithHelp("r/ctrl+r", "run"),
 		),
 		NextField: key.NewBinding(
-			key.WithKeys("ctrl+n"),
-			key.WithHelp("ctrl+n", "next field"),
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "next field"),
 		),
 		PrevField: key.NewBinding(
-			key.WithKeys("ctrl+p"),
-			key.WithHelp("ctrl+p", "prev field"),
+			key.WithKeys("shift+tab"),
+			key.WithHelp("shift+tab", "prev field"),
 		),
 		Save: key.NewBinding(
 			key.WithKeys("s"),
@@ -121,41 +122,49 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 			key.WithHelp("ctrl+l", "refresh list"),
 		),
 		ToggleFullDetail: key.NewBinding(
-			key.WithKeys("tab"),
-			key.WithHelp("tab", "toggle full detail"),
+			key.WithKeys("enter", " "),
+			key.WithHelp("enter/space", "toggle detail"),
 		),
 	}
 }
 
 // RunnerView manages the script/transaction runner interface
 type RunnerView struct {
-	mu               sync.RWMutex
-	table            table.Model
-	codeViewport     viewport.Model
-	detailViewport   viewport.Model  // Viewport for full detail mode
-	keys             RunnerKeyMap
-	ready            bool
-	scripts          []ScriptFile
-	width            int
-	height           int
-	fullDetailMode   bool            // Toggle between split and full-screen detail view
-	accountRegistry  *aether.AccountRegistry
-	inputFields      []InputField
-	activeFieldIndex int
-	editingField     bool
-	availableSigners []string // List of available signer names
-	overflow         *overflow.OverflowState
-	spinner          spinner.Model
-	isExecuting      bool
-	executionResult  string
-	executionError   error
-	savingConfig     bool            // True when showing save dialog
-	saveInput        textinput.Model // Input for save filename
-	saveError        string          // Error message from last save attempt
+	mu                  sync.RWMutex
+	table               table.Model
+	codeViewport        viewport.Model
+	detailViewport      viewport.Model // Viewport for full detail mode
+	splitDetailViewport viewport.Model // Viewport for split view detail panel
+	keys                RunnerKeyMap
+	ready               bool
+	scripts             []ScriptFile
+	width               int
+	height              int
+	tableWidthPercent   int             // Configurable table width percentage
+	detailWidthPercent  int             // Configurable detail width percentage
+	fullDetailMode      bool            // Toggle between split and full-screen detail view
+	accountRegistry     *aether.AccountRegistry
+	inputFields         []InputField
+	activeFieldIndex    int
+	editingField        bool
+	availableSigners    []string // List of available signer names
+	overflow            *overflow.OverflowState
+	spinner             spinner.Model
+	isExecuting         bool
+	executionResult     string
+	executionError      error
+	savingConfig        bool            // True when showing save dialog
+	saveInput           textinput.Model // Input for save filename
+	saveError           string          // Error message from last save attempt
 }
 
-// NewRunnerView creates a new runner view
+// NewRunnerView creates a new runner view with default settings
 func NewRunnerView() *RunnerView {
+	return NewRunnerViewWithConfig(nil)
+}
+
+// NewRunnerViewWithConfig creates a new runner view with configuration
+func NewRunnerViewWithConfig(cfg *config.Config) *RunnerView {
 	columns := []table.Column{
 		{Title: "Type", Width: 12},
 		{Title: "Name", Width: 35},
@@ -189,6 +198,10 @@ func NewRunnerView() *RunnerView {
 	detailVp := viewport.New(0, 0)
 	detailVp.Style = lipgloss.NewStyle()
 
+	// Create viewport for split view detail panel
+	splitVp := viewport.New(0, 0)
+	splitVp.Style = lipgloss.NewStyle()
+
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
@@ -199,21 +212,33 @@ func NewRunnerView() *RunnerView {
 	saveInput.CharLimit = 50
 	saveInput.Width = 40
 
+	// Get width percentages from config
+	// Use config defaults, or fallback to DefaultConfig if no config provided
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+	
+	tableWidthPercent := cfg.UI.Layout.Runner.TableWidthPercent
+	detailWidthPercent := cfg.UI.Layout.Runner.DetailWidthPercent
+
 	rv := &RunnerView{
-		table:            t,
-		codeViewport:     vp,
-		detailViewport:   detailVp,
-		keys:             DefaultRunnerKeyMap(),
-		ready:            false,
-		scripts:          make([]ScriptFile, 0),
-		inputFields:      make([]InputField, 0),
-		activeFieldIndex: 0,
-		editingField:     false,
-		fullDetailMode:   false,
-		spinner:          sp,
-		isExecuting:      false,
-		savingConfig:     false,
-		saveInput:        saveInput,
+		table:               t,
+		codeViewport:        vp,
+		detailViewport:      detailVp,
+		splitDetailViewport: splitVp,
+		keys:                DefaultRunnerKeyMap(),
+		ready:               false,
+		scripts:             make([]ScriptFile, 0),
+		inputFields:         make([]InputField, 0),
+		activeFieldIndex:    0,
+		editingField:        false,
+		tableWidthPercent:   tableWidthPercent,
+		detailWidthPercent:  detailWidthPercent,
+		fullDetailMode:      false,
+		spinner:             sp,
+		isExecuting:         false,
+		savingConfig:        false,
+		saveInput:           saveInput,
 	}
 
 	// Scan for scripts and transactions
@@ -876,8 +901,9 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if !rv.ready {
 			rv.ready = true
 		}
-		// Table takes 30% width, rest for details
-		tableWidth := int(float64(width) * 0.3)
+		// Table width using configured percentage
+		tableWidth := int(float64(width) * float64(rv.tableWidthPercent) / 100.0)
+		detailWidth := max(10, width-tableWidth-2)
 		rv.table.SetWidth(tableWidth)
 		rv.table.SetHeight(height)
 
@@ -892,6 +918,10 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		hintHeight := lipgloss.Height(hint) + 2 // +2 for spacing
 		rv.detailViewport.Width = width
 		rv.detailViewport.Height = height - hintHeight
+
+		// Update split view detail viewport size
+		rv.splitDetailViewport.Width = detailWidth
+		rv.splitDetailViewport.Height = height
 		rv.mu.Unlock()
 
 	case tea.KeyMsg:
@@ -950,19 +980,6 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			}
 		}
 
-		// Handle toggle full detail view
-		if key.Matches(msg, rv.keys.ToggleFullDetail) {
-			rv.mu.Lock()
-			wasFullMode := rv.fullDetailMode
-			rv.fullDetailMode = !rv.fullDetailMode
-			// Update viewport content when entering full detail mode
-			if !wasFullMode && rv.fullDetailMode {
-				rv.updateDetailViewport()
-			}
-			rv.mu.Unlock()
-			return nil
-		}
-
 		// Check if we're in full detail mode
 		rv.mu.RLock()
 		inFullDetail := rv.fullDetailMode
@@ -987,7 +1004,7 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
 				rv.mu.Unlock()
 				return nil
-			case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "tab"))):
+			case key.Matches(msg, rv.keys.NextField): // tab
 				rv.mu.Lock()
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
 				// Move to next field and auto-focus it
@@ -999,6 +1016,27 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				}
 				// Last field - exit editing mode
 				rv.editingField = false
+				rv.mu.Unlock()
+				return nil
+			case key.Matches(msg, rv.keys.PrevField): // shift+tab
+				rv.mu.Lock()
+				rv.inputFields[rv.activeFieldIndex].Input.Blur()
+				// Move to previous field and auto-focus it
+				if rv.activeFieldIndex > 0 {
+					rv.activeFieldIndex--
+					rv.inputFields[rv.activeFieldIndex].Input.Focus()
+					rv.mu.Unlock()
+					return textinput.Blink
+				}
+				// First field - exit editing mode
+				rv.editingField = false
+				rv.mu.Unlock()
+				return nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				// Enter just exits editing mode
+				rv.mu.Lock()
+				rv.editingField = false
+				rv.inputFields[rv.activeFieldIndex].Input.Blur()
 				rv.mu.Unlock()
 				return nil
 			default:
@@ -1033,20 +1071,24 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			return nil
 
 		case key.Matches(msg, rv.keys.Enter):
-			// Only allow editing in full detail mode
-			if inFullDetail {
-				rv.mu.RLock()
-				hasFields = len(rv.inputFields) > 0
-				activeIdx := rv.activeFieldIndex
-				rv.mu.RUnlock()
-
-				if hasFields {
-					rv.mu.Lock()
-					rv.editingField = true
-					rv.inputFields[activeIdx].Input.Focus()
-					rv.mu.Unlock()
-					return textinput.Blink
+			// Enter/Space toggles full detail mode (when not editing)
+			if !isEditing {
+				rv.mu.Lock()
+				wasFullMode := rv.fullDetailMode
+				rv.fullDetailMode = !rv.fullDetailMode
+				// When entering full detail mode, auto-focus first field if available
+				if !wasFullMode && rv.fullDetailMode {
+					rv.updateDetailViewport()
+					if len(rv.inputFields) > 0 {
+						rv.activeFieldIndex = 0
+						rv.editingField = true
+						rv.inputFields[0].Input.Focus()
+						rv.mu.Unlock()
+						return textinput.Blink
+					}
 				}
+				rv.mu.Unlock()
+				return nil
 			}
 			return nil
 
@@ -1064,6 +1106,24 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			return func() tea.Msg {
 				return RescanFilesMsg{}
 			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("i"))):
+			// 'i' to start editing in full detail mode
+			if inFullDetail && !isEditing {
+				rv.mu.RLock()
+				hasFields = len(rv.inputFields) > 0
+				activeIdx := rv.activeFieldIndex
+				rv.mu.RUnlock()
+
+				if hasFields {
+					rv.mu.Lock()
+					rv.editingField = true
+					rv.inputFields[activeIdx].Input.Focus()
+					rv.mu.Unlock()
+					return textinput.Blink
+				}
+			}
+			return nil
 
 		case key.Matches(msg, rv.keys.Down), key.Matches(msg, rv.keys.NextField):
 			// In full detail mode, navigate form fields
@@ -1185,8 +1245,8 @@ func (rv *RunnerView) View() string {
 		return "No script selected"
 	}
 
-	// Table on left (30%)
-	tableWidth := int(float64(rv.width) * 0.3)
+	// Table on left - using configured percentage
+	tableWidth := int(float64(rv.width) * float64(rv.tableWidthPercent) / 100.0)
 	detailWidth := max(10, rv.width-tableWidth-2) // Ensure minimum width
 
 	tableView := lipgloss.NewStyle().
@@ -1194,9 +1254,8 @@ func (rv *RunnerView) View() string {
 		MaxHeight(rv.height).
 		Render(rv.table.View())
 
-	// Detail view on right - read-only in split view
+	// Update split detail viewport with current script
 	selectedIdx := rv.table.Cursor()
-	var detailView string
 	if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 		script := rv.scripts[selectedIdx]
 		rv.mu.RUnlock()
@@ -1204,20 +1263,19 @@ func (rv *RunnerView) View() string {
 		// In split view, show read-only detail text
 		rv.mu.RLock()
 		content := rv.renderDetailText(script)
+		rv.splitDetailViewport.SetContent(content)
+		rv.splitDetailViewport.GotoTop() // Always scroll to top
 		rv.mu.RUnlock()
-		
-		detailView = lipgloss.NewStyle().
-			Width(detailWidth).
-			MaxHeight(rv.height).
-			Padding(1).
-			Render(content)
 	} else {
-		detailView = lipgloss.NewStyle().
-			Width(detailWidth).
-			MaxHeight(rv.height).
-			Render("No script selected")
+		rv.splitDetailViewport.SetContent("No script selected")
 		rv.mu.RUnlock()
 	}
+
+	// Render split detail viewport
+	detailView := lipgloss.NewStyle().
+		Width(detailWidth).
+		Height(rv.height).
+		Render(rv.splitDetailViewport.View())
 
 	// Combine table and detail side by side
 	return lipgloss.JoinHorizontal(
@@ -1292,11 +1350,10 @@ func (rv *RunnerView) renderDetailText(script ScriptFile) string {
 	return details.String()
 }
 
-// renderDetail renders the detail view with form and code (for split view with input forms)
+// renderDetail renders the detail view with form and code (for full detail mode with input forms)
 func (rv *RunnerView) renderDetail(script ScriptFile, width, height int) string {
+	// Don't apply width constraint to avoid truncating styled content
 	detailStyle := lipgloss.NewStyle().
-		Width(width).
-		MaxHeight(height).
 		Padding(1, 2)
 
 	var content strings.Builder
