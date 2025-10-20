@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 
+	aetherConfig "github.com/bjartek/aether/pkg/config"
 	gethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/onflow/flow-evm-gateway/bootstrap"
 	gatewayConfig "github.com/onflow/flow-evm-gateway/config"
@@ -29,8 +30,8 @@ type Gateway struct {
 	logger zerolog.Logger
 }
 
-// InitGateway initializes the EVM gateway with default configuration
-func InitGateway(logger zerolog.Logger) (*Gateway, gatewayConfig.Config, error) {
+// InitGateway initializes the EVM gateway with configuration
+func InitGateway(logger zerolog.Logger, cfg *aetherConfig.Config) (*Gateway, gatewayConfig.Config, error) {
 	loader := &afero.Afero{Fs: afero.NewOsFs()}
 	state, err := flowkit.Load(config.DefaultPaths(), loader)
 	if err != nil {
@@ -67,26 +68,28 @@ func InitGateway(logger zerolog.Logger) (*Gateway, gatewayConfig.Config, error) 
 	// Derive the EVM address from the private key
 	evmAddress := gethCrypto.PubkeyToAddress(flowPrivateKeyBytes.PublicKey)
 
-	// Default gateway configuration matching flow-cli defaults
-	dbPath := "./evm-gateway-db"
+	// Get database path from config
+	dbPath := cfg.EVM.DatabasePath
 
 	// Create logger for gateway operations
 	logger.Info().Str("evmAddress", evmAddress.Hex()).Msg("Using EVM gateway key")
 
-	// Clean up old database to ensure fresh start
-	if _, err := os.Stat(dbPath); err == nil {
-		logger.Info().Str("path", dbPath).Msg("Removing old EVM gateway database")
-		if err := os.RemoveAll(dbPath); err != nil {
-			logger.Warn().Err(err).Str("path", dbPath).Msg("Failed to remove old database directory")
-		} else {
-			logger.Info().Str("path", dbPath).Msg("Old database removed successfully")
+	// Clean up old database if configured to do so
+	if cfg.EVM.DeleteDatabaseOnStart {
+		if _, err := os.Stat(dbPath); err == nil {
+			logger.Info().Str("path", dbPath).Msg("Removing old EVM gateway database")
+			if err := os.RemoveAll(dbPath); err != nil {
+				logger.Warn().Err(err).Str("path", dbPath).Msg("Failed to remove old database directory")
+			} else {
+				logger.Info().Str("path", dbPath).Msg("Old database removed successfully")
+			}
 		}
 	}
 
-	cfg := gatewayConfig.Config{
+	gatewayCfg := gatewayConfig.Config{
 		DatabaseDir:            dbPath,
-		AccessNodeHost:         "localhost:3569", // emulator gRPC port
-		RPCPort:                8545,
+		AccessNodeHost:         fmt.Sprintf("localhost:%d", cfg.Ports.Emulator.GRPC),
+		RPCPort:                cfg.Ports.EVM.RPC,
 		RPCHost:                "",
 		FlowNetworkID:          flowGo.Emulator,
 		EVMNetworkID:           types.FlowEVMPreviewNetChainID, // Chain ID 646
@@ -101,9 +104,9 @@ func InitGateway(logger zerolog.Logger) (*Gateway, gatewayConfig.Config, error) 
 		TxStateValidation:      "local-index",
 		ProfilerEnabled:        true,
 		ProfilerHost:           "localhost",
-		ProfilerPort:           6060,
+		ProfilerPort:           cfg.Ports.EVM.Profiler,
 		WSEnabled:              true,
-		MetricsPort:            9091,
+		MetricsPort:            cfg.Ports.EVM.Metrics,
 		FilterExpiry:           300000000000,
 		TxRequestLimitDuration: 300000000000,
 		TxBatchInterval:        1200000000,
@@ -117,11 +120,11 @@ func InitGateway(logger zerolog.Logger) (*Gateway, gatewayConfig.Config, error) 
 		cancel: cancel,
 		ready:  make(chan struct{}),
 		done:   make(chan struct{}),
-		dbPath: cfg.DatabaseDir,
+		dbPath: gatewayCfg.DatabaseDir,
 		logger: logger,
 	}
 
-	return gateway, cfg, nil
+	return gateway, gatewayCfg, nil
 }
 
 // Start starts the EVM gateway server

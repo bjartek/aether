@@ -12,6 +12,7 @@ import (
 
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/chroma"
+	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/key"
@@ -153,8 +154,13 @@ type TransactionsView struct {
 	accountRegistry  *aether.AccountRegistry
 }
 
-// NewTransactionsView creates a new transactions view
+// NewTransactionsView creates a new transactions view with default settings
 func NewTransactionsView() *TransactionsView {
+	return NewTransactionsViewWithConfig(nil)
+}
+
+// NewTransactionsViewWithConfig creates a new transactions view with configuration
+func NewTransactionsViewWithConfig(cfg *config.Config) *TransactionsView {
 	columns := []table.Column{
 		{Title: "Time", Width: 8},  // Execution time
 		{Title: "ID", Width: 9},    // Truncated hex (first 3 + ... + last 3)
@@ -190,16 +196,40 @@ func NewTransactionsView() *TransactionsView {
 	// Create filter input
 	filterInput := textinput.New()
 	filterInput.Placeholder = "Filter by authorizer name..."
-	filterInput.CharLimit = 50
-	filterInput.Width = 50
+	if cfg != nil {
+		filterInput.CharLimit = cfg.UI.Filter.CharLimit
+		filterInput.Width = cfg.UI.Filter.Width
+	} else {
+		filterInput.CharLimit = 50
+		filterInput.Width = 50
+	}
 
 	// Create save input
 	saveInput := textinput.New()
 	saveInput.Placeholder = "transaction-name"
-	saveInput.CharLimit = 50
-	saveInput.Width = 40
+	if cfg != nil {
+		saveInput.CharLimit = cfg.UI.Save.FilenameCharLimit
+		saveInput.Width = cfg.UI.Save.DialogWidth
+	} else {
+		saveInput.CharLimit = 50
+		saveInput.Width = 40
+	}
 
-	const maxTransactions = 10000
+	// Get max transactions from config or use default
+	maxTransactions := 10000
+	if cfg != nil {
+		maxTransactions = cfg.UI.History.MaxTransactions
+	}
+
+	// Get default display modes from config
+	showEventFields := false
+	showRawAddresses := false
+	fullDetailMode := false
+	if cfg != nil {
+		showEventFields = cfg.UI.Defaults.ShowEventFields
+		showRawAddresses = cfg.UI.Defaults.ShowRawAddresses
+		fullDetailMode = cfg.UI.Defaults.FullDetailMode
+	}
 
 	return &TransactionsView{
 		table:            t,
@@ -211,9 +241,9 @@ func NewTransactionsView() *TransactionsView {
 		transactions:     make([]TransactionData, 0, maxTransactions),
 		filteredTxs:      make([]TransactionData, 0),
 		maxTxs:           maxTransactions,
-		fullDetailMode:   false,
-		showEventFields:  false,
-		showRawAddresses: false, // Show friendly names by default
+		fullDetailMode:   fullDetailMode,
+		showEventFields:  showEventFields,
+		showRawAddresses: showRawAddresses,
 		filterMode:       false,
 		filterText:       "",
 		savingMode:       false,

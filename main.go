@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/bjartek/aether/pkg/ui"
@@ -28,50 +29,57 @@ var _ embed.FS
 
 func main() {
 	// Parse command line flags
-	verbose := flag.Bool("verbose", false, "Enable verbose (debug) logging")
-	logFile := flag.String("log-file", "", "Log to file (e.g. aether-debug.log)")
-	network := flag.String("n", "", "Network to follow: testnet or mainnet")
+	configPath := flag.String("config", "", "Path to configuration file")
+	network := flag.String("n", "", "Network to follow: emulator, testnet, or mainnet (overrides config)")
 	flag.Parse()
 
-	// Create logger with or without file output
+	// Load configuration
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Printf("Failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Apply command-line overrides
+	if *network != "" {
+		cfg.Network = *network
+	}
+
+	// Create logger with or without file output based on config
 	var logger zerolog.Logger
 	var logWriter *logs.LogWriter
-	var err error
 
-	if *logFile != "" {
-		// Create logger with file output for debugging and channel buffering (1000 log lines)
-		logger, logWriter, err = logs.NewLoggerWithFile(*logFile, 1000)
-		if err != nil {
-			fmt.Printf("Failed to create logger: %v\n", err)
+	if cfg.Logging.File.Enabled && cfg.Logging.File.Path != "" {
+		// Create logger with file output
+		var err2 error
+		logger, logWriter, err2 = logs.NewLoggerWithFile(cfg.Logging.File.Path, cfg.Logging.File.BufferSize)
+		if err2 != nil {
+			fmt.Printf("Failed to create logger: %v\n", err2)
 			os.Exit(1)
 		}
 	} else {
 		// Create logger without file output (TUI only)
-		logger, logWriter = logs.NewLogger(1000)
+		logger, logWriter = logs.NewLogger(cfg.Logging.File.BufferSize)
 	}
 
-	// Set log level based on verbose flag
-	if *verbose {
-		logger = logger.Level(zerolog.DebugLevel)
+	// Set global log level from config
+	logger = logger.Level(logs.ParseLogLevel(cfg.Logging.Level.Global))
+
+	// Create component-specific loggers with their configured levels
+	aetherLogger := logs.WithComponent(logger, "aether").Level(logs.ParseLogLevel(cfg.Logging.Level.Aether))
+	emulatorLogger := logs.WithComponent(logger, "emulator").Level(logs.ParseLogLevel(cfg.Logging.Level.Emulator))
+	walletLogger := logs.WithComponent(logger, "dev-wallet").Level(logs.ParseLogLevel(cfg.Logging.Level.DevWallet))
+	gatewayLogger := logs.WithComponent(logger, "evm-gateway").Level(logs.ParseLogLevel(cfg.Logging.Level.EVMGateway))
+
+	if cfg.Logging.File.Enabled {
+		aetherLogger.Info().Str("file", cfg.Logging.File.Path).Msg("Logging to file for debugging")
+	}
+
+	// Log configuration source
+	if *configPath != "" {
+		aetherLogger.Info().Str("config", *configPath).Msg("Loaded configuration from file")
 	} else {
-		logger = logger.Level(zerolog.InfoLevel)
-	}
-
-	// Create component-specific loggers
-	aetherLogger := logs.WithComponent(logger, "aether")
-	emulatorLogger := logs.WithComponent(logger, "emulator")
-	walletLogger := logs.WithComponent(logger, "dev-wallet")
-	gatewayLogger := logs.WithComponent(logger, "evm-gateway").Level(zerolog.ErrorLevel)
-
-	if *logFile != "" {
-		aetherLogger.Info().Str("file", *logFile).Msg("Logging to file for debugging")
-	}
-
-	// Validate network flag if provided
-	if *network != "" && *network != "testnet" && *network != "mainnet" {
-		aetherLogger.Error().Str("network", *network).Msg("Invalid network specified. Use 'testnet' or 'mainnet'")
-		fmt.Printf("Invalid network: %s. Use 'testnet' or 'mainnet'\n", *network)
-		os.Exit(1)
+		aetherLogger.Info().Msg("Using default configuration")
 	}
 
 	// Initialize components based on whether we're following a network or running locally
@@ -81,11 +89,11 @@ func main() {
 	var gatewayCfg gatewayConfig.Config
 	var emulatorReady chan struct{}
 
-	if *network == "" {
+	if cfg.Network == "emulator" {
 		// Local mode: start emulator, dev wallet, and EVM gateway
 		aetherLogger.Info().Msg("Initializing Flow emulator, dev wallet, and EVM gateway...")
 		var err2 error
-		emu, dw, err2 = flow.InitEmulator(&emulatorLogger)
+		emu, dw, err2 = flow.InitEmulator(&emulatorLogger, cfg)
 		if err2 != nil {
 			aetherLogger.Error().Err(err2).Msg("Failed to initialize Flow emulator & dev wallet")
 			panic(err2)
@@ -93,7 +101,7 @@ func main() {
 
 		aetherLogger.Info().Msg("Initializing EVM gateway...")
 		var err3 error
-		gateway, gatewayCfg, err3 = flow.InitGateway(gatewayLogger)
+		gateway, gatewayCfg, err3 = flow.InitGateway(gatewayLogger, cfg)
 		if err3 != nil {
 			aetherLogger.Error().Err(err3).Msg("Failed to initialize EVM gateway")
 			panic(err3)
@@ -127,7 +135,7 @@ func main() {
 		}()
 	} else {
 		// Network mode: following testnet or mainnet
-		aetherLogger.Info().Str("network", *network).Msg("Following network - no local services will be started")
+		aetherLogger.Info().Str("network", cfg.Network).Msg("Following network - no local services will be started")
 		emulatorReady = make(chan struct{})
 		close(emulatorReady) // Immediately ready since we're not starting an emulator
 	}
@@ -135,17 +143,18 @@ func main() {
 	a := aether.Aether{
 		Logger:  &aetherLogger,
 		FclCdc:  fclCdc,
-		Network: *network,
+		Network: cfg.Network,
+		Config:  cfg,
 	}
 
-	// Now create the Bubble Tea program
+	// Now create the Bubble Tea program with config
 	p := tea.NewProgram(
-		ui.NewModel(),
+		ui.NewModelWithConfig(cfg),
 		tea.WithAltScreen(), // Use alternate screen buffer
 	)
 
 	// Start EVM gateway after emulator is ready (only in local mode)
-	if *network == "" {
+	if cfg.Network == "emulator" {
 		go func() {
 			gatewayLogger.Info().Msg("Waiting for emulator to be ready...")
 			<-emulatorReady
@@ -177,7 +186,7 @@ func main() {
 	// Clean up
 	aetherLogger.Info().Msg("Shutting down...")
 	logWriter.Close()
-	if *network == "" {
+	if cfg.Network == "emulator" {
 		// Only stop local services if they were started
 		gatewayLogger.Info().Msg("Stopping EVM gateway...")
 		gateway.Stop()

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
+	aetherConfig "github.com/bjartek/aether/pkg/config"
 	"github.com/onflow/cadence"
 	devWallet "github.com/onflow/fcl-dev-wallet/go/wallet"
 	"github.com/onflow/flow-go/fvm"
@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/afero"
 )
 
-func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Server, error) {
+func InitEmulator(logger *zerolog.Logger, cfg *aetherConfig.Config) (*server.EmulatorServer, *devWallet.Server, error) {
 	loader := &afero.Afero{Fs: afero.NewOsFs()}
 	state, err := flowkit.Load(config.DefaultPaths(), loader)
 	if err != nil {
@@ -42,14 +42,14 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 	pk := *privateKey
 
 	serverConf := &server.Config{
-		GRPCPort:                     3569,
+		GRPCPort:                     cfg.Ports.Emulator.GRPC,
 		GRPCDebug:                    false,
-		AdminPort:                    8080,
-		DebuggerPort:                 2345,
-		RESTPort:                     8888,
+		AdminPort:                    cfg.Ports.Emulator.Admin,
+		DebuggerPort:                 cfg.Ports.Emulator.Debugger,
+		RESTPort:                     cfg.Ports.Emulator.REST,
 		RESTDebug:                    false,
 		HTTPHeaders:                  nil,
-		BlockTime:                    1 * time.Second,
+		BlockTime:                    cfg.Flow.BlockTime,
 		ServicePublicKey:             pk.PublicKey(),
 		ServicePrivateKey:            pk,
 		ServiceKeySigAlgo:            serviceAccount.Key.SigAlgo(),
@@ -78,7 +78,7 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 		RPCHost:                      "",
 		CheckpointPath:               "",
 		StateHash:                    "",
-		ComputationReportingEnabled:  false,
+		ComputationReportingEnabled:  true,
 		SetupEVMEnabled:              true,
 		SetupVMBridgeEnabled:         true,
 		ScheduledTransactionsEnabled: true,
@@ -90,10 +90,10 @@ func InitEmulator(logger *zerolog.Logger) (*server.EmulatorServer, *devWallet.Se
 		Address:    fmt.Sprintf("0x%s", serviceAccount.Address.String()),
 		PrivateKey: strings.TrimPrefix(pk.String(), "0x"),
 		PublicKey:  strings.TrimPrefix(pk.PublicKey().String(), "0x"),
-		AccessNode: "http://localhost:8888",
+		AccessNode: fmt.Sprintf("http://localhost:%d", cfg.Ports.Emulator.REST),
 	}
 
-	dw, err := devWallet.NewHTTPServer(8701, devWalletConfig)
+	dw, err := devWallet.NewHTTPServer(uint(cfg.Ports.DevWallet), devWalletConfig)
 	if err != nil {
 		return nil, nil, err
 	}

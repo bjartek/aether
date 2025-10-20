@@ -1,0 +1,117 @@
+# Aether Configuration File
+# This is an example configuration file showing all available options with their defaults
+# Copy this to aether.yaml and customize as needed
+
+# Network mode: emulator, testnet, or mainnet
+network: emulator
+
+# Flow blockchain configuration
+flow:
+  # Initial FLOW balance for newly created accounts
+  new_user_balance: 1000.0
+  # Block time for emulator (how often blocks are produced)
+  block_time: 1s
+
+# Indexer configuration
+indexer:
+  # How often to poll for new blocks
+  polling_interval: 200ms
+  
+  # Underflow data formatting options
+  underflow:
+    # Display byte arrays as hex strings
+    byte_array_as_hex: true
+    # Display Unix timestamps as human-readable dates
+    show_timestamps_as_date: true
+    # Format for displaying timestamps
+    timestamp_format: "2006-01-02 15:04:05 UTC"
+
+# Port configuration - all ports in one place to avoid conflicts
+ports:
+  # Flow emulator ports
+  emulator:
+    grpc: 3569      # gRPC API
+    rest: 8888      # REST API
+    admin: 8080     # Admin API
+    debugger: 2345  # Debugger
+  
+  # Dev wallet port
+  dev_wallet: 8701
+  
+  # EVM gateway ports
+  evm:
+    rpc: 8545       # JSON-RPC API
+    profiler: 6060  # pprof profiler
+    metrics: 9091   # Prometheus metrics
+
+# EVM gateway configuration
+evm:
+  # Path to EVM gateway database
+  database_path: evm-gateway-db
+  # Delete database on startup (useful for development)
+  delete_database_on_start: true
+
+# Logging configuration
+logging:
+  # Log levels per component
+  level:
+    global: info        # Default level for all components
+    aether: info        # Main aether component (inherits global if not set)
+    emulator: info      # Flow emulator (inherits global if not set)
+    dev_wallet: info    # Dev wallet (inherits global if not set)
+    evm_gateway: error  # EVM gateway (defaults to error to reduce noise)
+  
+  # Timestamp format for log messages
+  timestamp_format: "15:04:05"
+  
+  # Enable colored output
+  color: true
+  
+  # File logging configuration
+  file:
+    enabled: false
+    path: ""
+    buffer_size: 1000
+
+# UI configuration
+ui:
+  # Color theme: solarized, default, or custom
+  theme: solarized
+  
+  # History limits
+  history:
+    max_transactions: 10000
+    max_events: 10000
+    max_log_lines: 10000
+  
+  # Layout configuration
+  layout:
+    # Default view on startup: transactions, events, or runner
+    default_view: transactions
+    
+    # Transactions view split (percentages)
+    transactions:
+      table_width_percent: 40
+      detail_width_percent: 60
+    
+    # Events view split (percentages)
+    events:
+      table_width_percent: 60
+      detail_width_percent: 40
+  
+  # Default display modes
+  defaults:
+    show_event_fields: false   # Show event field details by default
+    show_raw_addresses: false  # Show raw addresses vs friendly names
+    full_detail_mode: false    # Start in full detail mode
+  
+  # Filter settings
+  filter:
+    char_limit: 50
+    width: 50
+  
+  # Save dialog settings
+  save:
+    default_directory: transactions
+    filename_char_limit: 50
+    dialog_width: 40

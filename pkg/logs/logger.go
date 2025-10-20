@@ -67,3 +67,23 @@ func NewLoggerWithFile(logFilePath string, bufferSize int) (zerolog.Logger, *Log
 func WithComponent(logger zerolog.Logger, component string) zerolog.Logger {
 	return logger.With().Str("component", component).Logger()
 }
+
+// ParseLogLevel converts a string log level to zerolog.Level
+func ParseLogLevel(level string) zerolog.Level {
+	switch level {
+	case "trace":
+		return zerolog.TraceLevel
+	case "debug":
+		return zerolog.DebugLevel
+	case "info":
+		return zerolog.InfoLevel
+	case "warn":
+		return zerolog.WarnLevel
+	case "error":
+		return zerolog.ErrorLevel
+	case "fatal":
+		return zerolog.FatalLevel
+	default:
+		return zerolog.InfoLevel
+	}
+}

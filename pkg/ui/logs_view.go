@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -73,17 +74,28 @@ type LogsView struct {
 	totalHeight   int // Total height available for the entire logs view
 }
 
-// NewLogsView creates a new logs view.
+// NewLogsView creates a new logs view with default settings.
 func NewLogsView() *LogsView {
+	return NewLogsViewWithConfig(nil)
+}
+
+// NewLogsViewWithConfig creates a new logs view with configuration.
+func NewLogsViewWithConfig(cfg *config.Config) *LogsView {
 	filterInput := textinput.New()
 	filterInput.Placeholder = "Filter logs..."
 	filterInput.CharLimit = 100
 	filterInput.Width = 50
 	
+	// Get max log lines from config or use default
+	maxLines := 10000
+	if cfg != nil {
+		maxLines = cfg.UI.History.MaxLogLines
+	}
+	
 	lv := &LogsView{
 		lines:         make([]string, 0),
 		filteredLines: make([]string, 0),
-		maxLines:      10000, // Keep last 10000 lines in memory
+		maxLines:      maxLines,
 		keys:          DefaultLogsKeyMap(),
 		ready:         false,
 		autoScroll:    true, // Start with auto-scroll enabled

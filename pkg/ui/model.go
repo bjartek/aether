@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/help"
@@ -43,6 +44,11 @@ type Model struct {
 
 // NewModel creates a new application model with default tabs.
 func NewModel() Model {
+	return NewModelWithConfig(nil)
+}
+
+// NewModelWithConfig creates a new application model with configuration.
+func NewModelWithConfig(cfg *config.Config) Model {
 	tabs := []Tab{
 		{Name: "Dashboard", Content: ""},      // Content will be rendered by DashboardView
 		{Name: "Transactions", Content: ""},   // Content will be rendered by TransactionsView
@@ -60,17 +66,32 @@ func NewModel() Model {
 	helpModel.Styles.FullDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")) // White for descriptions
 	helpModel.Styles.FullSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")) // Gray for separators
 
+	// Use config if provided, otherwise use defaults
+	var activeTab int
+	if cfg != nil {
+		switch cfg.UI.Layout.DefaultView {
+		case "transactions":
+			activeTab = 1
+		case "events":
+			activeTab = 2
+		case "runner":
+			activeTab = 3
+		default:
+			activeTab = 0 // Dashboard
+		}
+	}
+
 	return Model{
 		tabs:                tabs,
-		activeTab:           0, // Start on Dashboard tab
+		activeTab:           activeTab,
 		keys:                DefaultKeyMap(),
 		help:                helpModel,
 		showHelp:            false,
 		dashboardView:       NewDashboardView(),
-		transactionsView:    NewTransactionsView(),
-		eventsView:          NewEventsView(),
+		transactionsView:    NewTransactionsViewWithConfig(cfg),
+		eventsView:          NewEventsViewWithConfig(cfg),
 		runnerView:          NewRunnerView(),
-		logsView:            NewLogsView(),
+		logsView:            NewLogsViewWithConfig(cfg),
 		dashboardTabIndex:   0, // Index of the Dashboard tab
 		transactionsTabIndex: 1, // Index of the Transactions tab
 		eventsTabIndex:      2, // Index of the Events tab

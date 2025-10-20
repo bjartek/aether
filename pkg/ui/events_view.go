@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
@@ -95,8 +96,13 @@ type EventsView struct {
 	accountRegistry  *aether.AccountRegistry
 }
 
-// NewEventsView creates a new events view
+// NewEventsView creates a new events view with default settings
 func NewEventsView() *EventsView {
+	return NewEventsViewWithConfig(nil)
+}
+
+// NewEventsViewWithConfig creates a new events view with configuration
+func NewEventsViewWithConfig(cfg *config.Config) *EventsView {
 	columns := []table.Column{
 		{Title: "Time", Width: 8}, // Execution time
 		{Title: "Block", Width: 6},
@@ -131,10 +137,27 @@ func NewEventsView() *EventsView {
 	// Create filter input
 	filterInput := textinput.New()
 	filterInput.Placeholder = "Filter by event name..."
-	filterInput.CharLimit = 50
-	filterInput.Width = 50
+	if cfg != nil {
+		filterInput.CharLimit = cfg.UI.Filter.CharLimit
+		filterInput.Width = cfg.UI.Filter.Width
+	} else {
+		filterInput.CharLimit = 50
+		filterInput.Width = 50
+	}
 
-	const maxEvents = 10000
+	// Get max events from config or use default
+	maxEvents := 10000
+	if cfg != nil {
+		maxEvents = cfg.UI.History.MaxEvents
+	}
+
+	// Get default display modes from config
+	showRawAddresses := false
+	fullDetailMode := false
+	if cfg != nil {
+		showRawAddresses = cfg.UI.Defaults.ShowRawAddresses
+		fullDetailMode = cfg.UI.Defaults.FullDetailMode
+	}
 
 	return &EventsView{
 		table:            t,
@@ -145,8 +168,8 @@ func NewEventsView() *EventsView {
 		events:           make([]EventData, 0, maxEvents),
 		filteredEvents:   make([]EventData, 0),
 		maxEvents:        maxEvents,
-		fullDetailMode:   false,
-		showRawAddresses: false, // Show friendly names by default
+		fullDetailMode:   fullDetailMode,
+		showRawAddresses: showRawAddresses,
 		filterMode:       false,
 		filterText:       "",
 	}

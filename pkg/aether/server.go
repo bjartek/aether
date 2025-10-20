@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
 	"github.com/bjartek/underflow"
@@ -21,7 +21,8 @@ type Aether struct {
 	FclCdc          []byte
 	Overflow        *overflow.OverflowState
 	AccountRegistry *AccountRegistry
-	Network         string // "testnet", "mainnet", or empty for local emulator
+	Network         string // "testnet", "mainnet", or "emulator"
+	Config          *config.Config
 }
 
 // BlockTransactionMsg is sent when a transaction is processed
@@ -66,7 +67,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 
 	// Initialize overflow based on network mode
 	var o *overflow.OverflowState
-	if a.Network == "" {
+	if a.Network == "emulator" {
 		// Local emulator mode
 		o = overflow.Overflow(
 			overflow.WithExistingEmulator(),
@@ -75,7 +76,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			overflow.WithTransactionFolderName("aether"),
 			overflow.WithBasePath(basePath),
 			overflow.WithUnderflowOptions(underflowOptions),
-			overflow.WithFlowForNewUsers(1000.0))
+			overflow.WithFlowForNewUsers(a.Config.Flow.NewUserBalance))
 	} else {
 		// Network mode (testnet or mainnet)
 		a.Logger.Info().Str("network", a.Network).Msg("Initializing overflow for network")
@@ -89,7 +90,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 	}
 
 	// Only create accounts in local mode
-	if a.Network == "" {
+	if a.Network == "emulator" {
 		a.Logger.Info().Str("network", o.Network.Name).Msg("emulator")
 		_, err := o.CreateAccountsE(ctx)
 		if err != nil {
@@ -108,7 +109,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 
 	// Create second overflow instance for runner view with same underflow options
 	var oR *overflow.OverflowState
-	if a.Network == "" {
+	if a.Network == "emulator" {
 		oR = overflow.Overflow(
 			overflow.WithExistingEmulator(),
 			overflow.WithLogNone(),
@@ -136,12 +137,11 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 
 	// Determine starting block height and polling interval based on network mode
 	var startHeight uint64
-	var pollInterval time.Duration
+	pollInterval := a.Config.Indexer.PollingInterval
 
-	if a.Network == "" {
+	if a.Network == "emulator" {
 		// Local emulator mode - start from block 1
 		startHeight = 1
-		pollInterval = 200 * time.Millisecond
 	} else {
 		// Network mode - start from latest block
 		latestBlock, err := o.GetLatestBlock(ctx)
@@ -150,13 +150,6 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			return err
 		}
 		startHeight = latestBlock.Height
-
-		// Use 800ms polling for mainnet, 200ms for testnet
-		if a.Network == "mainnet" {
-			pollInterval = 800 * time.Millisecond
-		} else {
-			pollInterval = 200 * time.Millisecond
-		}
 
 		a.Logger.Info().
 			Str("network", a.Network).
