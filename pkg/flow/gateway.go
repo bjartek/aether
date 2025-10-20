@@ -84,23 +84,30 @@ func InitGateway(logger zerolog.Logger) (*Gateway, gatewayConfig.Config, error) 
 	}
 
 	cfg := gatewayConfig.Config{
-		DatabaseDir:       dbPath,
-		AccessNodeHost:    "localhost:3569", // emulator gRPC port
-		RPCPort:           8545,
-		RPCHost:           "localhost",
-		InitCadenceHeight: 1,
-		FlowNetworkID:     flowGo.Emulator,
-		EVMNetworkID:      types.FlowEVMPreviewNetChainID, // Chain ID 646
-		Coinbase:          evmAddress,                     // Use derived address from private key
-		WalletEnabled:     true,
-		WalletKey:         evmPrivateKey, // ECDSA private key for wallet API
-		GasPrice:          big.NewInt(1),
-		COAAddress:        flowsdk.Address(serviceAccount.Address),
-		COAKey:            flowPrivateKey, // Flow private key for COA operations
-		Logger:            &logger,
-		TxStateValidation: "local-index",
-		ProfilerEnabled:   true,
-		ProfilerPort:      6060,
+		DatabaseDir:            dbPath,
+		AccessNodeHost:         "localhost:3569", // emulator gRPC port
+		RPCPort:                8545,
+		RPCHost:                "",
+		FlowNetworkID:          flowGo.Emulator,
+		EVMNetworkID:           types.FlowEVMPreviewNetChainID, // Chain ID 646
+		Coinbase:               evmAddress,                     // Use derived address from private key
+		WalletEnabled:          true,
+		EnforceGasPrice:        true,
+		WalletKey:              evmPrivateKey, // ECDSA private key for wallet API
+		GasPrice:               big.NewInt(0),
+		COAAddress:             flowsdk.Address(serviceAccount.Address),
+		COAKey:                 flowPrivateKey, // Flow private key for COA operations
+		Logger:                 &logger,
+		TxStateValidation:      "local-index",
+		ProfilerEnabled:        true,
+		ProfilerHost:           "localhost",
+		ProfilerPort:           6060,
+		WSEnabled:              true,
+		MetricsPort:            9091,
+		FilterExpiry:           300000000000,
+		TxRequestLimitDuration: 300000000000,
+		TxBatchInterval:        1200000000,
+		EOAActivityCacheTTL:    10000000000,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

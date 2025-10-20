@@ -74,7 +74,8 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			overflow.WithReturnErrors(),
 			overflow.WithTransactionFolderName("aether"),
 			overflow.WithBasePath(basePath),
-			overflow.WithUnderflowOptions(underflowOptions))
+			overflow.WithUnderflowOptions(underflowOptions),
+			overflow.WithFlowForNewUsers(1000.0))
 	} else {
 		// Network mode (testnet or mainnet)
 		a.Logger.Info().Str("network", a.Network).Msg("Initializing overflow for network")

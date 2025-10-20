@@ -155,9 +155,9 @@
   "deployments": {
     "emulator": {
       "emulator-account": [
-        "Counter",
         "FlowTransactionSchedulerUtils",
-        "TestFlowScheduledTransactionHandler"
+        "TestFlowScheduledTransactionHandler",
+        "Counter"
       ],
       "emulator-alice": [],
       "emulator-bob": []
