@@ -330,7 +330,7 @@ func (rv *RunnerView) scanFiles() {
 					Path:            path,
 					Type:            sp.typ,
 					Code:            codeStr,
-					HighlightedCode: chroma.HighlightCadence(codeStr),
+					HighlightedCode: chroma.HighlightCadenceWithStyleAndWidth(codeStr, "solarized-dark", 160),
 					Config:          config,
 					IsFromJSON:      true,
 					Network:         configNetwork,
@@ -377,7 +377,7 @@ func (rv *RunnerView) scanFiles() {
 					Path:            path,
 					Type:            sp.typ,
 					Code:            codeStr,
-					HighlightedCode: chroma.HighlightCadence(codeStr),
+					HighlightedCode: chroma.HighlightCadenceWithStyleAndWidth(codeStr, "solarized-dark", 160),
 					IsFromJSON:      false,
 					Network:         network,
 				}
@@ -574,8 +574,11 @@ func (rv *RunnerView) updateCodeViewport(script ScriptFile) {
 	if rv.codeViewport.Width == 0 || rv.codeViewport.Height == 0 {
 		return
 	}
-	// Highlight with ANSI-aware wrapping at viewport width
-	content := chroma.HighlightCadenceWithStyleAndWidth(script.Code, "solarized-dark", rv.codeViewport.Width)
+	// Use pre-wrapped and highlighted code from scan time
+	content := script.HighlightedCode
+	if content == "" {
+		content = script.Code
+	}
 	rv.codeViewport.SetContent(content)
 	rv.codeViewport.GotoTop()
 }
@@ -1208,17 +1211,24 @@ func (rv *RunnerView) View() string {
 			Render("No scripts or transactions found in scripts/, transactions/, cadence/scripts/, or cadence/transactions/")
 	}
 
-	// Full detail mode - show detail with interactive forms
+	// Full detail mode - show detail with interactive forms in a scrollable viewport
 	if rv.fullDetailMode {
 		selectedIdx := rv.table.Cursor()
 		if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 			script := rv.scripts[selectedIdx]
-			detailView := rv.renderDetail(script, rv.width, rv.height)
-
+			
+			// Set viewport to full screen dimensions
+			rv.detailViewport.Width = rv.width
+			rv.detailViewport.Height = rv.height - 3 // Leave room for hint
+			
+			// Render all content into viewport for scrolling
+			content := rv.renderDetailForViewport(script, rv.detailViewport.Width)
+			rv.detailViewport.SetContent(content)
+			
 			hint := lipgloss.NewStyle().
 				Foreground(mutedColor).
 				Render("Press Tab or Esc to return to table view")
-			return hint + "\n\n" + detailView
+			return hint + "\n\n" + rv.detailViewport.View()
 		}
 		return "No script selected"
 	}
@@ -1317,17 +1327,19 @@ func (rv *RunnerView) renderDetailText(script ScriptFile, width int) string {
 		details.WriteString("\n")
 	}
 
-	// Code - highlight then wrap with ANSI-aware reflow
+	// Code - use pre-wrapped and highlighted code
 	details.WriteString(fieldStyle.Render("Code:") + "\n")
-	// Highlight with ANSI-aware wrapping at viewport width
-	code := chroma.HighlightCadenceWithStyleAndWidth(script.Code, "solarized-dark", width)
+	code := script.HighlightedCode
+	if code == "" {
+		code = script.Code
+	}
 	details.WriteString(code + "\n")
 
 	return details.String()
 }
 
-// renderDetail renders the detail view with form and code (for full detail mode with input forms)
-func (rv *RunnerView) renderDetail(script ScriptFile, width, height int) string {
+// renderDetailForViewport renders the detail view with form and code for viewport (full detail mode with input forms)
+func (rv *RunnerView) renderDetailForViewport(script ScriptFile, width int) string {
 	// Don't apply width constraint to avoid truncating styled content
 	detailStyle := lipgloss.NewStyle().
 		Padding(1, 2)
@@ -1402,28 +1414,15 @@ func (rv *RunnerView) renderDetail(script ScriptFile, width, height int) string 
 		content.WriteString(hintStyle.Render("No parameters required. Press r to run, s to save") + "\n\n")
 	}
 
-	// Code section
+	// Code section - use pre-wrapped and highlighted code
 	codeTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Code:")
 	content.WriteString(codeTitle + "\n")
-
-	// Calculate remaining height for code viewport
-	// Measure actual height of content rendered so far
-	renderedContent := content.String()
-	contentHeight := lipgloss.Height(renderedContent)
-	// Leave some padding for the code section
-	paddingLines := 2
-	codeHeight := height - contentHeight - paddingLines
-	if codeHeight < 5 {
-		codeHeight = 5
+	
+	code := script.HighlightedCode
+	if code == "" {
+		code = script.Code
 	}
-
-	rv.codeViewport.Width = width - 4
-	rv.codeViewport.Height = codeHeight
-
-	if rv.codeViewport.Width > 0 && rv.codeViewport.Height > 0 {
-		rv.updateCodeViewport(script)
-		content.WriteString(rv.codeViewport.View())
-	}
+	content.WriteString(code + "\n")
 
 	return detailStyle.Render(content.String())
 }

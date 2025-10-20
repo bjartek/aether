@@ -6,7 +6,7 @@ import (
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/muesli/reflow/wordwrap"
+	"github.com/muesli/reflow/wrap"
 )
 
 // NewCadenceLexer creates a Chroma lexer for the Cadence language.
@@ -155,7 +155,7 @@ func HighlightCadenceWithStyleAndWidth(code, styleName string, maxWidth int) str
 
 	// Wrap AFTER highlighting using ANSI-aware wordwrap if maxWidth is specified
 	if maxWidth > 0 {
-		highlighted = wordwrap.String(highlighted, maxWidth)
+		highlighted = wrap.String(highlighted, maxWidth)
 	}
 
 	return highlighted
