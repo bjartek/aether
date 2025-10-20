@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bjartek/aether/pkg/aether"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 // FormatFieldValue formats a field value with proper indentation for container types.
@@ -15,25 +16,27 @@ import (
 // baseIndent is the indentation level where this value should start (e.g., "  " for 2 spaces).
 // registry and showRawAddresses are optional - pass nil and false to disable address mapping.
 func FormatFieldValue(val interface{}, baseIndent string) string {
-	return FormatFieldValueWithRegistry(val, baseIndent, nil, false)
+	return FormatFieldValueWithRegistry(val, baseIndent, nil, false, 0)
 }
 
 // FormatFieldValueWithRegistry formats a field value with account registry support for address mapping.
-func FormatFieldValueWithRegistry(val interface{}, baseIndent string, registry *aether.AccountRegistry, showRawAddresses bool) string {
+// maxWidth specifies the maximum width for text wrapping (0 = no wrapping).
+func FormatFieldValueWithRegistry(val interface{}, baseIndent string, registry *aether.AccountRegistry, showRawAddresses bool, maxWidth int) string {
 	// Check if this is a container type at the top level
 	switch val.(type) {
 	case map[string]interface{}, []interface{}:
 		// Container type - format with base indentation and add newline prefix
-		return "\n" + formatValue(val, baseIndent, registry, showRawAddresses)
+		return "\n" + formatValue(val, baseIndent, registry, showRawAddresses, maxWidth)
 	default:
 		// Simple type - format without scientific notation
-		return formatSimpleValue(val, registry, showRawAddresses)
+		return formatSimpleValue(val, registry, showRawAddresses, baseIndent, maxWidth)
 	}
 }
 
 // formatSimpleValue formats a simple value, avoiding scientific notation for numbers
-// and mapping addresses to friendly names if registry is provided
-func formatSimpleValue(val interface{}, registry *aether.AccountRegistry, showRawAddresses bool) string {
+// and mapping addresses to friendly names if registry is provided.
+// For strings, wraps text if maxWidth > 0.
+func formatSimpleValue(val interface{}, registry *aether.AccountRegistry, showRawAddresses bool, indent string, maxWidth int) string {
 	switch v := val.(type) {
 	case float64:
 		// Avoid scientific notation - use fixed-point notation
@@ -64,6 +67,44 @@ func formatSimpleValue(val interface{}, registry *aether.AccountRegistry, showRa
 				return name
 			}
 		}
+		// Wrap text if maxWidth is specified and string is long
+		if maxWidth > 0 && len(v) > maxWidth-len(indent) {
+			// Calculate available width accounting for indent
+			availableWidth := maxWidth - len(indent)
+			if availableWidth < 20 {
+				availableWidth = 20 // Minimum width to avoid breaking too aggressively
+			}
+			
+			// Wrap the text - wordwrap breaks on word boundaries
+			// For strings without spaces (like hex), use simple character-based breaking
+			if !strings.Contains(v, " ") {
+				// No spaces - break by characters
+				var lines []string
+				remaining := v
+				for len(remaining) > 0 {
+					if len(remaining) <= availableWidth {
+						lines = append(lines, remaining)
+						break
+					}
+					lines = append(lines, remaining[:availableWidth])
+					remaining = remaining[availableWidth:]
+				}
+				// Add indent to continuation lines
+				for i := 1; i < len(lines); i++ {
+					lines[i] = indent + lines[i]
+				}
+				return strings.Join(lines, "\n")
+			}
+			
+			// Has spaces - use word wrapping
+			wrapped := wordwrap.String(v, availableWidth)
+			// Add indent to continuation lines
+			lines := strings.Split(wrapped, "\n")
+			for i := 1; i < len(lines); i++ {
+				lines[i] = indent + lines[i]
+			}
+			return strings.Join(lines, "\n")
+		}
 		return v
 	default:
 		return fmt.Sprintf("%v", val)
@@ -89,7 +130,7 @@ func isFlowAddress(s string) bool {
 }
 
 // formatValue recursively formats a value with the given indentation
-func formatValue(val interface{}, indent string, registry *aether.AccountRegistry, showRawAddresses bool) string {
+func formatValue(val interface{}, indent string, registry *aether.AccountRegistry, showRawAddresses bool, maxWidth int) string {
 	switch v := val.(type) {
 	case map[string]interface{}:
 		if len(v) == 0 {
@@ -110,12 +151,14 @@ func formatValue(val interface{}, indent string, registry *aether.AccountRegistr
 			case map[string]interface{}, []interface{}:
 				// Container type - format on new line with increased indent
 				// The nested content gets the parent's indent + 2 spaces
-				formattedValue := formatValue(value, indent+"  ", registry, showRawAddresses)
+				formattedValue := formatValue(value, indent+"  ", registry, showRawAddresses, maxWidth)
 				lines = append(lines, fmt.Sprintf("%s%s:", indent, key))
 				lines = append(lines, formattedValue)
 			default:
 				// Simple type - format on same line
-				lines = append(lines, fmt.Sprintf("%s%s: %s", indent, key, formatSimpleValue(value, registry, showRawAddresses)))
+				// Calculate indent for this line (key + ": ")
+				lineIndent := indent + key + ": "
+				lines = append(lines, fmt.Sprintf("%s%s: %s", indent, key, formatSimpleValue(value, registry, showRawAddresses, lineIndent, maxWidth)))
 			}
 		}
 		return strings.Join(lines, "\n")
@@ -130,18 +173,19 @@ func formatValue(val interface{}, indent string, registry *aether.AccountRegistr
 			switch item.(type) {
 			case map[string]interface{}, []interface{}:
 				// Container type - format on new line with increased indent
-				formattedItem := formatValue(item, indent+"  ", registry, showRawAddresses)
+				formattedItem := formatValue(item, indent+"  ", registry, showRawAddresses, maxWidth)
 				lines = append(lines, fmt.Sprintf("%s- [%d]:", indent, i))
 				lines = append(lines, formattedItem)
 			default:
 				// Simple type - format on same line
-				lines = append(lines, fmt.Sprintf("%s- %s", indent, formatSimpleValue(item, registry, showRawAddresses)))
+				lineIndent := indent + "- "
+				lines = append(lines, fmt.Sprintf("%s- %s", indent, formatSimpleValue(item, registry, showRawAddresses, lineIndent, maxWidth)))
 			}
 		}
 		return strings.Join(lines, "\n")
 
 	default:
 		// For simple types, use formatSimpleValue
-		return fmt.Sprintf("%s%s", indent, formatSimpleValue(val, registry, showRawAddresses))
+		return fmt.Sprintf("%s%s", indent, formatSimpleValue(val, registry, showRawAddresses, indent, maxWidth))
 	}
 }

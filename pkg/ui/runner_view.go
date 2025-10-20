@@ -140,9 +140,9 @@ type RunnerView struct {
 	scripts             []ScriptFile
 	width               int
 	height              int
-	tableWidthPercent   int             // Configurable table width percentage
-	detailWidthPercent  int             // Configurable detail width percentage
-	fullDetailMode      bool            // Toggle between split and full-screen detail view
+	tableWidthPercent   int  // Configurable table width percentage
+	detailWidthPercent  int  // Configurable detail width percentage
+	fullDetailMode      bool // Toggle between split and full-screen detail view
 	accountRegistry     *aether.AccountRegistry
 	inputFields         []InputField
 	activeFieldIndex    int
@@ -217,7 +217,7 @@ func NewRunnerViewWithConfig(cfg *config.Config) *RunnerView {
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
-	
+
 	tableWidthPercent := cfg.UI.Layout.Runner.TableWidthPercent
 	detailWidthPercent := cfg.UI.Layout.Runner.DetailWidthPercent
 
@@ -574,11 +574,8 @@ func (rv *RunnerView) updateCodeViewport(script ScriptFile) {
 	if rv.codeViewport.Width == 0 || rv.codeViewport.Height == 0 {
 		return
 	}
-	// Use highlighted code if available, otherwise fall back to raw code
-	content := script.HighlightedCode
-	if content == "" {
-		content = script.Code
-	}
+	// Highlight with ANSI-aware wrapping at viewport width
+	content := chroma.HighlightCadenceWithStyleAndWidth(script.Code, "solarized-dark", rv.codeViewport.Width)
 	rv.codeViewport.SetContent(content)
 	rv.codeViewport.GotoTop()
 }
@@ -596,8 +593,8 @@ func (rv *RunnerView) updateDetailViewport() {
 			return
 		}
 		script := rv.scripts[selectedIdx]
-		// Render the full detail content
-		content := rv.renderDetailText(script)
+		// Render the full detail content with full viewport width
+		content := rv.renderDetailText(script, rv.detailViewport.Width)
 		rv.detailViewport.SetContent(content)
 		rv.detailViewport.GotoTop()
 	}
@@ -910,7 +907,7 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		// Code viewport at bottom of detail pane
 		rv.codeViewport.Width = width - tableWidth - 4
 		rv.codeViewport.Height = height / 2 // Half for inputs, half for code
-		
+
 		// Update viewport size for full detail mode
 		hint := lipgloss.NewStyle().
 			Foreground(mutedColor).
@@ -1203,9 +1200,9 @@ func (rv *RunnerView) View() string {
 	}
 
 	rv.mu.RLock()
+	defer rv.mu.RUnlock()
 
 	if len(rv.scripts) == 0 {
-		rv.mu.RUnlock()
 		return lipgloss.NewStyle().
 			Foreground(mutedColor).
 			Render("No scripts or transactions found in scripts/, transactions/, cadence/scripts/, or cadence/transactions/")
@@ -1216,38 +1213,18 @@ func (rv *RunnerView) View() string {
 		selectedIdx := rv.table.Cursor()
 		if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 			script := rv.scripts[selectedIdx]
-			
-			// Check if we need to setup fields - if so, upgrade to write lock
-			needsSetup := len(rv.inputFields) == 0
-			rv.mu.RUnlock()
-
-			if needsSetup {
-				rv.mu.Lock()
-				// Double-check after acquiring write lock
-				if len(rv.inputFields) == 0 {
-					rv.setupInputFields(script)
-					rv.updateCodeViewport(script)
-				}
-				rv.mu.Unlock()
-			}
-
-			// Re-acquire read lock for rendering
-			rv.mu.RLock()
 			detailView := rv.renderDetail(script, rv.width, rv.height)
-			rv.mu.RUnlock()
-			
+
 			hint := lipgloss.NewStyle().
 				Foreground(mutedColor).
 				Render("Press Tab or Esc to return to table view")
 			return hint + "\n\n" + detailView
 		}
-		rv.mu.RUnlock()
 		return "No script selected"
 	}
 
 	// Table on left - using configured percentage
 	tableWidth := int(float64(rv.width) * float64(rv.tableWidthPercent) / 100.0)
-	detailWidth := max(10, rv.width-tableWidth-2) // Ensure minimum width
 
 	tableView := lipgloss.NewStyle().
 		Width(tableWidth).
@@ -1257,25 +1234,26 @@ func (rv *RunnerView) View() string {
 	// Update split detail viewport with current script
 	selectedIdx := rv.table.Cursor()
 	if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
-		script := rv.scripts[selectedIdx]
-		rv.mu.RUnlock()
+		currentWidth := rv.splitDetailViewport.Width
+		if currentWidth == 0 {
+			currentWidth = 100 // Default
+		}
 
-		// In split view, show read-only detail text
-		rv.mu.RLock()
-		content := rv.renderDetailText(script)
+		script := rv.scripts[selectedIdx]
+
+		// Just render fresh every time - no caching, no optimization
+		// Don't wrap here - code is already wrapped inside HighlightCadenceWithStyleAndWidth
+		content := rv.renderDetailText(script, currentWidth)
+		
 		rv.splitDetailViewport.SetContent(content)
-		rv.splitDetailViewport.GotoTop() // Always scroll to top
-		rv.mu.RUnlock()
+		rv.splitDetailViewport.GotoTop()
 	} else {
 		rv.splitDetailViewport.SetContent("No script selected")
-		rv.mu.RUnlock()
+		rv.splitDetailViewport.GotoTop()
 	}
 
-	// Render split detail viewport
-	detailView := lipgloss.NewStyle().
-		Width(detailWidth).
-		Height(rv.height).
-		Render(rv.splitDetailViewport.View())
+	// Render split detail viewport (viewport itself handles width/height constraints)
+	detailView := rv.splitDetailViewport.View()
 
 	// Combine table and detail side by side
 	return lipgloss.JoinHorizontal(
@@ -1286,7 +1264,8 @@ func (rv *RunnerView) View() string {
 }
 
 // renderDetailText renders the full detail content for inspector mode (without input forms)
-func (rv *RunnerView) renderDetailText(script ScriptFile) string {
+// width specifies the maximum width for text wrapping (0 = no wrapping)
+func (rv *RunnerView) renderDetailText(script ScriptFile, width int) string {
 	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
 	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
 
@@ -1303,11 +1282,11 @@ func (rv *RunnerView) renderDetailText(script ScriptFile) string {
 	details.WriteString(renderField("Type", string(script.Type)))
 	details.WriteString(renderField("Name", script.Name))
 	details.WriteString(renderField("Network", script.Network))
-	
+
 	if script.Signers > 0 {
 		details.WriteString(renderField("Signers", fmt.Sprintf("%d", script.Signers)))
 	}
-	
+
 	if len(script.Parameters) > 0 {
 		details.WriteString(renderField("Parameters", fmt.Sprintf("%d", len(script.Parameters))))
 	}
@@ -1331,20 +1310,17 @@ func (rv *RunnerView) renderDetailText(script ScriptFile) string {
 	if len(script.Parameters) > 0 {
 		details.WriteString(fieldStyle.Render("Parameters:") + "\n")
 		for _, param := range script.Parameters {
-			details.WriteString(fmt.Sprintf("  • %s: %s\n", 
+			details.WriteString(fmt.Sprintf("  • %s: %s\n",
 				valueStyleDetail.Render(param.Name),
 				lipgloss.NewStyle().Foreground(mutedColor).Render(param.Type)))
 		}
 		details.WriteString("\n")
 	}
 
-	// Code
+	// Code - highlight then wrap with ANSI-aware reflow
 	details.WriteString(fieldStyle.Render("Code:") + "\n")
-	// Use highlighted code if available
-	code := script.HighlightedCode
-	if code == "" {
-		code = script.Code
-	}
+	// Highlight with ANSI-aware wrapping at viewport width
+	code := chroma.HighlightCadenceWithStyleAndWidth(script.Code, "solarized-dark", width)
 	details.WriteString(code + "\n")
 
 	return details.String()

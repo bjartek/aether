@@ -6,6 +6,7 @@ import (
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 // NewCadenceLexer creates a Chroma lexer for the Cadence language.
@@ -113,6 +114,14 @@ func HighlightCadence(code string) string {
 // Available styles: "monokai", "solarized-dark", "solarized-light", "github", "vim", etc.
 // Returns the original code if highlighting fails.
 func HighlightCadenceWithStyle(code, styleName string) string {
+	return HighlightCadenceWithStyleAndWidth(code, styleName, 0)
+}
+
+// HighlightCadenceWithStyleAndWidth highlights Cadence code with optional ANSI-aware width wrapping AFTER highlighting.
+// Available styles: "monokai", "solarized-dark", "solarized-light", "github", "vim", etc.
+// maxWidth: maximum line width in visible characters (0 = no wrapping). Wrapping happens AFTER highlighting to preserve ANSI codes.
+// Returns the original code if highlighting fails.
+func HighlightCadenceWithStyleAndWidth(code, styleName string, maxWidth int) string {
 	// Get the lexer
 	lexer := NewCadenceLexer()
 
@@ -142,5 +151,12 @@ func HighlightCadenceWithStyle(code, styleName string) string {
 		return code
 	}
 
-	return buf.String()
+	highlighted := buf.String()
+
+	// Wrap AFTER highlighting using ANSI-aware wordwrap if maxWidth is specified
+	if maxWidth > 0 {
+		highlighted = wordwrap.String(highlighted, maxWidth)
+	}
+
+	return highlighted
 }

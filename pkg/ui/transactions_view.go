@@ -64,9 +64,8 @@ type TransactionData struct {
 	EVMTransactions   []EVMTransactionData // Decoded EVM transactions
 	Type              TransactionType      // Transaction type (flow/evm/mixed)
 	Error             string
-	Timestamp         time.Time
-	Index             int
-	preRenderedDetail string // Cached detail text for performance
+	Timestamp time.Time
+	Index     int
 }
 
 // TransactionMsg is sent when a new transaction is received
@@ -390,19 +389,7 @@ func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, o
 
 	tv.transactions = append(tv.transactions, txData)
 
-	// Pre-render asynchronously in background (don't block)
-	go func() {
-		detail := tv.renderTransactionDetailText(txData)
-		tv.mu.Lock()
-		// Find and update the transaction
-		for i := range tv.transactions {
-			if tv.transactions[i].ID == txData.ID {
-				tv.transactions[i].preRenderedDetail = detail
-				break
-			}
-		}
-		tv.mu.Unlock()
-	}()
+	// No pre-rendering - render fresh on demand
 
 	// Keep only the last maxTxs transactions
 	if len(tv.transactions) > tv.maxTxs {
@@ -426,12 +413,8 @@ func (tv *TransactionsView) updateDetailViewport() {
 		if tv.detailViewport.Width == 0 || tv.detailViewport.Height == 0 {
 			return
 		}
-		// Use pre-rendered detail text for instant display
-		content := tv.transactions[selectedIdx].preRenderedDetail
-		if content == "" {
-			// Fallback if not pre-rendered
-			return
-		}
+		// Render fresh
+		content := tv.renderTransactionDetailText(tv.transactions[selectedIdx], tv.detailViewport.Width)
 		tv.detailViewport.SetContent(content)
 		tv.detailViewport.GotoTop() // Always start at top
 	}
@@ -668,11 +651,8 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		// Handle toggle event fields
 		if key.Matches(msg, tv.keys.ToggleEventFields) {
 			tv.showEventFields = !tv.showEventFields
-			// Need to re-render all transactions with new setting
+			// Refresh full detail viewport if needed
 			tv.mu.Lock()
-			for i := range tv.transactions {
-				tv.transactions[i].preRenderedDetail = tv.renderTransactionDetailText(tv.transactions[i])
-			}
 			if tv.fullDetailMode {
 				tv.updateDetailViewport()
 			}
@@ -683,12 +663,9 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		// Handle toggle raw addresses
 		if key.Matches(msg, tv.keys.ToggleRawAddresses) {
 			tv.showRawAddresses = !tv.showRawAddresses
-			// Need to re-render all transactions with new setting
+			// Refresh table and full detail viewport if needed
 			tv.mu.Lock()
 			tv.refreshTable()
-			for i := range tv.transactions {
-				tv.transactions[i].preRenderedDetail = tv.renderTransactionDetailText(tv.transactions[i])
-			}
 			if tv.fullDetailMode {
 				tv.updateDetailViewport()
 			}
@@ -846,19 +823,26 @@ func (tv *TransactionsView) View() string {
 	// Split view mode - table on left, detail on right
 	// Calculate widths using configured percentages
 	tableWidth := int(float64(tv.width) * float64(tv.tableWidthPercent) / 100.0)
-	detailWidth := max(10, tv.width-tableWidth-2) // Ensure minimum width
 
 	// Update split detail viewport with current transaction
 	selectedIdx := tv.table.Cursor()
 	if selectedIdx >= 0 && selectedIdx < len(tv.transactions) {
-		content := tv.transactions[selectedIdx].preRenderedDetail
-		if content == "" {
-			content = tv.renderTransactionDetailText(tv.transactions[selectedIdx])
+		currentWidth := tv.splitDetailViewport.Width
+		if currentWidth == 0 {
+			currentWidth = 100 // Default
 		}
-		tv.splitDetailViewport.SetContent(content)
-		tv.splitDetailViewport.GotoTop() // Always scroll to top
+		
+		tx := tv.transactions[selectedIdx]
+		
+		// Just render fresh every time - no caching, no optimization
+		content := tv.renderTransactionDetailText(tx, currentWidth)
+		wrappedContent := lipgloss.NewStyle().Width(currentWidth).Render(content)
+		
+		tv.splitDetailViewport.SetContent(wrappedContent)
+		tv.splitDetailViewport.GotoTop()
 	} else {
 		tv.splitDetailViewport.SetContent("No transaction selected")
+		tv.splitDetailViewport.GotoTop()
 	}
 
 	// Style table
@@ -867,11 +851,8 @@ func (tv *TransactionsView) View() string {
 		MaxHeight(tv.height).
 		Render(tv.table.View())
 
-	// Render split detail viewport
-	detailView := lipgloss.NewStyle().
-		Width(detailWidth).
-		Height(tv.height).
-		Render(tv.splitDetailViewport.View())
+	// Render split detail viewport (viewport itself handles width/height constraints)
+	detailView := tv.splitDetailViewport.View()
 
 	// Combine table and detail side by side
 	mainView := lipgloss.JoinHorizontal(
@@ -889,7 +870,8 @@ func (tv *TransactionsView) View() string {
 }
 
 // renderTransactionDetailText renders transaction details as plain text (for viewport)
-func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) string {
+// width specifies the maximum width for text wrapping (0 = no wrapping)
+func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData, width int) string {
 	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
 	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
 
@@ -989,8 +971,8 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 					val := event.Fields[key]
 					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
-					// Format value with proper base indentation (7 spaces = 5 for event indent + 2 for nesting)
-					valStr := FormatFieldValueWithRegistry(val, "       ", tv.accountRegistry, tv.showRawAddresses)
+					// Use simple indent for nested structures, lipgloss handles wrapping
+					valStr := FormatFieldValueWithRegistry(val, "       ", tv.accountRegistry, tv.showRawAddresses, 0)
 					details.WriteString(fmt.Sprintf("     %s: %s\n",
 						valueStyleDetail.Render(paddedKey),
 						valueStyleDetail.Render(valStr)))
@@ -1071,8 +1053,8 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 		for _, arg := range tx.Arguments {
 			paddedName := fmt.Sprintf("%-*s", maxNameLen, arg.Name)
 
-			// Format value with proper indentation (4 spaces = 2 for arg + 2 for nesting)
-			valStr := FormatFieldValueWithRegistry(arg.Value, "    ", tv.accountRegistry, tv.showRawAddresses)
+			// Use simple indent for nested structures, lipgloss handles wrapping
+			valStr := FormatFieldValueWithRegistry(arg.Value, "    ", tv.accountRegistry, tv.showRawAddresses, 0)
 
 			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedName),
@@ -1098,12 +1080,8 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 // renderTransactionDetail renders the detailed view of a transaction (for split view)
 // Uses the same full content as inspector view, just in a smaller viewport
 func (tv *TransactionsView) renderTransactionDetail(tx TransactionData, width, height int) string {
-	// Use pre-rendered detail (same as inspector view)
-	content := tx.preRenderedDetail
-	if content == "" {
-		// Fallback if not pre-rendered
-		content = tv.renderTransactionDetailText(tx)
-	}
+	// Render fresh
+	content := tv.renderTransactionDetailText(tx, width)
 	
 	// Apply padding only - don't constrain width to avoid reflowing already-styled content
 	// The parent container will handle clipping

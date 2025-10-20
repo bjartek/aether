@@ -26,9 +26,8 @@ type EventData struct {
 	TransactionID     string
 	TransactionIndex  int
 	EventIndex        int
-	Fields            map[string]interface{}
-	Timestamp         time.Time
-	preRenderedDetail string // Cached detail text for performance
+	Fields    map[string]interface{}
+	Timestamp time.Time
 }
 
 // EventsKeyMap defines keybindings for the events view
@@ -226,20 +225,7 @@ func (ev *EventsView) AddEvent(blockHeight uint64, blockID string, txID string, 
 
 	ev.events = append(ev.events, eventData)
 
-	// Pre-render asynchronously in background
-	go func() {
-		detail := ev.renderEventDetailText(eventData)
-		ev.mu.Lock()
-		// Find and update the event
-		for i := range ev.events {
-			if ev.events[i].TransactionID == eventData.TransactionID &&
-				ev.events[i].EventIndex == eventData.EventIndex {
-				ev.events[i].preRenderedDetail = detail
-				break
-			}
-		}
-		ev.mu.Unlock()
-	}()
+	// No pre-rendering - render fresh on demand
 
 	// Keep only the last maxEvents events
 	if len(ev.events) > ev.maxEvents {
@@ -261,10 +247,8 @@ func (ev *EventsView) updateDetailViewport() {
 		if ev.detailViewport.Width == 0 || ev.detailViewport.Height == 0 {
 			return
 		}
-		content := ev.events[selectedIdx].preRenderedDetail
-		if content == "" {
-			return
-		}
+		// Render fresh
+		content := ev.renderEventDetailText(ev.events[selectedIdx], ev.detailViewport.Width)
 		ev.detailViewport.SetContent(content)
 		ev.detailViewport.GotoTop()
 	}
@@ -401,9 +385,6 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if key.Matches(msg, ev.keys.ToggleRawAddresses) {
 			ev.showRawAddresses = !ev.showRawAddresses
 			ev.mu.Lock()
-			for i := range ev.events {
-				ev.events[i].preRenderedDetail = ev.renderEventDetailText(ev.events[i])
-			}
 			if ev.fullDetailMode {
 				ev.updateDetailViewport()
 			}
@@ -476,19 +457,27 @@ func (ev *EventsView) View() string {
 	// Split view mode - table on left, detail on right
 	// Calculate widths using configured percentages
 	tableWidth := int(float64(ev.width) * float64(ev.tableWidthPercent) / 100.0)
-	detailWidth := max(10, ev.width-tableWidth-2) // Ensure minimum width
 
 	// Update split detail viewport with current event
 	selectedIdx := ev.table.Cursor()
 	if selectedIdx >= 0 && selectedIdx < len(ev.events) {
-		content := ev.events[selectedIdx].preRenderedDetail
-		if content == "" {
-			content = ev.renderEventDetailText(ev.events[selectedIdx])
+		currentWidth := ev.splitDetailViewport.Width
+		if currentWidth == 0 {
+			currentWidth = 100 // Default
 		}
-		ev.splitDetailViewport.SetContent(content)
-		ev.splitDetailViewport.GotoTop() // Always scroll to top
+		
+		event := ev.events[selectedIdx]
+		
+		// Just render fresh every time - no caching, no optimization
+		content := ev.renderEventDetailText(event, currentWidth)
+		// Wrap with lipgloss for proper text flow
+		wrappedContent := lipgloss.NewStyle().Width(currentWidth).Render(content)
+		
+		ev.splitDetailViewport.SetContent(wrappedContent)
+		ev.splitDetailViewport.GotoTop()
 	} else {
 		ev.splitDetailViewport.SetContent("No event selected")
+		ev.splitDetailViewport.GotoTop()
 	}
 
 	// Style table
@@ -497,11 +486,8 @@ func (ev *EventsView) View() string {
 		MaxHeight(ev.height).
 		Render(ev.table.View())
 
-	// Render split detail viewport
-	detailView := lipgloss.NewStyle().
-		Width(detailWidth).
-		Height(ev.height).
-		Render(ev.splitDetailViewport.View())
+	// Render split detail viewport (viewport itself handles width/height constraints)
+	detailView := ev.splitDetailViewport.View()
 
 	// Combine table and detail side by side
 	mainView := lipgloss.JoinHorizontal(
@@ -517,7 +503,8 @@ func (ev *EventsView) View() string {
 }
 
 // renderEventDetailText renders event details as plain text (for viewport)
-func (ev *EventsView) renderEventDetailText(event EventData) string {
+// width specifies the maximum width for text wrapping (0 = no wrapping)
+func (ev *EventsView) renderEventDetailText(event EventData, width int) string {
 	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
 	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
 
@@ -559,8 +546,9 @@ func (ev *EventsView) renderEventDetailText(event EventData) string {
 			val := event.Fields[key]
 			paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
 
-			// Format value with proper base indentation (4 spaces = 2 for field + 2 for nesting)
-			valStr := FormatFieldValueWithRegistry(val, "    ", ev.accountRegistry, ev.showRawAddresses)
+			// For nested structures, use simple indent
+			// The lipgloss width wrapping will handle line breaks for simple values
+			valStr := FormatFieldValueWithRegistry(val, "    ", ev.accountRegistry, ev.showRawAddresses, 0)
 			details.WriteString(fmt.Sprintf("  %s: %s\n",
 				valueStyleDetail.Render(paddedKey),
 				valueStyleDetail.Render(valStr)))
@@ -575,12 +563,8 @@ func (ev *EventsView) renderEventDetailText(event EventData) string {
 // renderEventDetail renders the detailed view of an event (for split view)
 // Uses the same full content as inspector view, just in a smaller viewport
 func (ev *EventsView) renderEventDetail(event EventData, width, height int) string {
-	// Use pre-rendered detail (same as inspector view)
-	content := event.preRenderedDetail
-	if content == "" {
-		// Fallback if not pre-rendered
-		content = ev.renderEventDetailText(event)
-	}
+	// Render fresh
+	content := ev.renderEventDetailText(event, width)
 	
 	// Just render with padding - don't constrain width to avoid clipping
 	// The parent container will handle the width constraint
