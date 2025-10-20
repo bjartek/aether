@@ -128,10 +128,10 @@ This does not work atm, debuging with mpeter
 ## Planned features
 
 - [ ] show accounts
-- [ ] show time not date of executed transaction
+- [x] show time not date of executed transaction
 - [x] human friendly display of unix timestamp
-- [ ] events table show time column
-- [ ] scheduled transaction
+- [x] events table show time column
+- [x] scheduled transaction
 - [ ] navigating in runner is slow since we have to step through arguments
-- [ ] make a config file
-- [ ] not sure if fees are filtered correctly on emulator...
+- [x] make a config file
+- [x] not sure if fees are filtered correctly on emulator...

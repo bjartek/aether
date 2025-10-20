@@ -13,6 +13,7 @@ import (
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/bjartek/aether/pkg/ui"
 	tea "github.com/charmbracelet/bubbletea"
+	zone "github.com/lrstanley/bubblezone"
 	devWallet "github.com/onflow/fcl-dev-wallet/go/wallet"
 	"github.com/onflow/flow-emulator/server"
 	gatewayConfig "github.com/onflow/flow-evm-gateway/config"
@@ -147,10 +148,14 @@ func main() {
 		Config:  cfg,
 	}
 
+	// Initialize global zone manager for mouse support
+	zone.NewGlobal()
+
 	// Now create the Bubble Tea program with config
 	p := tea.NewProgram(
 		ui.NewModelWithConfig(cfg),
-		tea.WithAltScreen(), // Use alternate screen buffer
+		tea.WithAltScreen(),       // Use alternate screen buffer
+		tea.WithMouseCellMotion(), // Enable mouse support
 	)
 
 	// Start EVM gateway after emulator is ready (only in local mode)

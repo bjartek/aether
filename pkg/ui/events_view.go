@@ -313,8 +313,13 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		ev.table.SetHeight(height)
 
 		// Update viewport size for full detail mode
+		// Calculate hint text height dynamically
+		hint := lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render("Press Tab or Esc to return to table view | j/k to scroll")
+		hintHeight := lipgloss.Height(hint) + 2 // +2 for spacing
 		ev.detailViewport.Width = width
-		ev.detailViewport.Height = height - 3
+		ev.detailViewport.Height = height - hintHeight
 
 	case tea.KeyMsg:
 		// Handle filter mode
@@ -443,7 +448,7 @@ func (ev *EventsView) View() string {
 
 	// Split view mode - table on left, detail on right (60% table, 40% details)
 	tableWidth := int(float64(ev.width) * 0.6)
-	detailWidth := ev.width - tableWidth - 2
+	detailWidth := max(10, ev.width-tableWidth-2) // Ensure minimum width
 
 	selectedIdx := ev.table.Cursor()
 	var detailView string
@@ -532,93 +537,22 @@ func (ev *EventsView) renderEventDetailText(event EventData) string {
 }
 
 // renderEventDetail renders the detailed view of an event (for split view)
+// Uses the same full content as inspector view, just in a smaller viewport
 func (ev *EventsView) renderEventDetail(event EventData, width, height int) string {
+	// Use pre-rendered detail (same as inspector view)
+	content := event.preRenderedDetail
+	if content == "" {
+		// Fallback if not pre-rendered
+		content = ev.renderEventDetailText(event)
+	}
+	
+	// Wrap in a style with max dimensions
 	detailStyle := lipgloss.NewStyle().
 		Width(width).
-		Height(height).
+		MaxHeight(height).
 		Padding(1)
 
-	// Render a condensed version that fits in the available height
-	content := ev.renderEventDetailCondensed(event, height-2)
 	return detailStyle.Render(content)
-}
-
-// renderEventDetailCondensed renders a height-aware condensed version
-func (ev *EventsView) renderEventDetailCondensed(event EventData, maxLines int) string {
-	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
-	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
-
-	renderField := func(label, value string) string {
-		return fieldStyle.Render(fmt.Sprintf("%-18s", label+":")) + " " + valueStyleDetail.Render(value) + "\n"
-	}
-
-	var details strings.Builder
-	lineCount := 0
-
-	// Title
-	details.WriteString(fieldStyle.Render("Event Details") + "\n\n")
-	lineCount += 2
-
-	// Basic info
-	details.WriteString(renderField("Event Name", event.Name))
-	details.WriteString(renderField("Block Height", fmt.Sprintf("%d", event.BlockHeight)))
-	details.WriteString(renderField("TX Index", fmt.Sprintf("%d", event.TransactionIndex)))
-	details.WriteString(renderField("Event Index", fmt.Sprintf("%d", event.EventIndex)))
-	lineCount += 4
-
-	if lineCount+1 < maxLines {
-		details.WriteString("\n")
-		lineCount++
-	}
-
-	// Fields (show some if there's space)
-	if len(event.Fields) > 0 && lineCount+3 < maxLines {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("Fields (%d):", len(event.Fields))) + "\n")
-		lineCount++
-
-		// Sort keys
-		keys := make([]string, 0, len(event.Fields))
-		for key := range event.Fields {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-
-		maxKeyLen := 0
-		for _, key := range keys {
-			if len(key) > maxKeyLen {
-				maxKeyLen = len(key)
-			}
-		}
-
-		fieldsShown := 0
-		for _, key := range keys {
-			if lineCount >= maxLines {
-				break
-			}
-			val := event.Fields[key]
-			paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
-
-			// Format value with proper base indentation (4 spaces = 2 for field + 2 for nesting)
-			valStr := FormatFieldValueWithRegistry(val, "    ", ev.accountRegistry, ev.showRawAddresses)
-			details.WriteString(fmt.Sprintf("  %s: %s\n",
-				valueStyleDetail.Render(paddedKey),
-				valueStyleDetail.Render(valStr)))
-			lineCount++
-			fieldsShown++
-		}
-
-		if fieldsShown < len(event.Fields) {
-			details.WriteString(fmt.Sprintf("  ... and %d more\n", len(event.Fields)-fieldsShown))
-		}
-	}
-
-	// Hint to view full details
-	if lineCount+2 < maxLines {
-		details.WriteString("\n")
-		details.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Render("Press Tab for full details"))
-	}
-
-	return details.String()
 }
 
 // Stop is a no-op for the events view

@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 // Tab represents a single tab in the application.
@@ -40,6 +41,7 @@ type Model struct {
 	width               int
 	height              int
 	ready               bool
+	zoneID              string // Zone ID prefix for mouse tracking
 }
 
 // NewModel creates a new application model with default tabs.
@@ -99,6 +101,7 @@ func NewModelWithConfig(cfg *config.Config) Model {
 		eventsTabIndex:      2, // Index of the Events tab
 		runnerTabIndex:      3, // Index of the Runner tab
 		logsTabIndex:        4, // Index of the Logs tab
+		zoneID:              zone.NewPrefix(), // Initialize zone ID for mouse tracking
 	}
 }
 
@@ -179,7 +182,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logs.LogLineMsg:
 		// Always forward log messages to the logs view, regardless of active tab
 		if m.logsView != nil {
-			headerHeight := 3
+			header := m.renderHeader()
+			headerHeight := lipgloss.Height(header)
 			contentHeight := m.height - headerHeight
 			cmd = m.logsView.Update(msg, m.width-4, contentHeight)
 			cmds = append(cmds, cmd)
@@ -192,7 +196,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.Width = msg.Width
 		m.ready = true
 
-		headerHeight := 3
+		// Calculate actual header height dynamically
+		header := m.renderHeader()
+		headerHeight := lipgloss.Height(header)
 		helpBarHeight := 0
 		if m.showHelp {
 			helpBarHeight = lipgloss.Height(m.renderHelpBar())
@@ -222,6 +228,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case tea.MouseMsg:
+		// Handle mouse clicks on tabs
+		if msg.Action != tea.MouseActionRelease || msg.Button != tea.MouseButtonLeft {
+			break
+		}
+
+		// Check each tab to see if it was clicked
+		for i := range m.tabs {
+			tabID := fmt.Sprintf("%stab-%d", m.zoneID, i)
+			if zone.Get(tabID).InBounds(msg) {
+				m.activeTab = i
+				return m, nil
+			}
+		}
+
 	case tea.KeyMsg:
 		// Check if we're in a text input mode where we should skip global keybindings
 		inTextInput := m.isInTextInputMode()
@@ -236,7 +257,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help):
 			m.showHelp = !m.showHelp
 			// Need to update all views with new content height after toggling help
-			headerHeight := 3
+			header := m.renderHeader()
+			headerHeight := lipgloss.Height(header)
 			helpBarHeight := 0
 			if m.showHelp {
 				helpBarHeight = lipgloss.Height(m.renderHelpBar())
@@ -301,7 +323,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Update the appropriate view based on active tab
-	headerHeight := 3
+	header := m.renderHeader()
+	headerHeight := lipgloss.Height(header)
 	helpBarHeight := 0
 	if m.showHelp {
 		helpBarHeight = lipgloss.Height(m.renderHelpBar())
@@ -346,32 +369,48 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
+	// Check minimum terminal size
+	minWidth := 80
+	minHeight := 24
+	if m.width < minWidth || m.height < minHeight {
+		msg := fmt.Sprintf("Terminal too small!\nMinimum size: %dx%d\nCurrent size: %dx%d\n\nPlease resize your terminal.",
+			minWidth, minHeight, m.width, m.height)
+		return lipgloss.NewStyle().
+			Foreground(warningColor).
+			Bold(true).
+			Padding(2).
+			Render(msg)
+	}
+
 	// Calculate available space for content
-	headerHeight := 3
+	header := m.renderHeader()
+	headerHeight := lipgloss.Height(header)
 	helpBarHeight := 0
 	if m.showHelp {
 		helpBarHeight = lipgloss.Height(m.renderHelpBar())
 	}
 	contentHeight := m.height - headerHeight - helpBarHeight
-
-	header := m.renderHeader()
 	helpBar := m.renderHelpBar()
 	content := m.renderContent(contentHeight)
 
+	var output string
 	if m.showHelp {
-		return lipgloss.JoinVertical(
+		output = lipgloss.JoinVertical(
 			lipgloss.Left,
 			header,
 			helpBar,
 			content,
 		)
+	} else {
+		output = lipgloss.JoinVertical(
+			lipgloss.Left,
+			header,
+			content,
+		)
 	}
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		content,
-	)
+	// Wrap output with zone.Scan() to enable mouse tracking
+	return zone.Scan(output)
 }
 
 // renderHeader renders the header with tab navigation and help indicator.
@@ -384,16 +423,30 @@ func (m Model) renderHeader() string {
 		}
 		// Add number indicator to tab name
 		tabName := fmt.Sprintf("%d %s", i+1, tab.Name)
-		tabs = append(tabs, style.Render(tabName))
+		
+		// Mark each tab with a zone for mouse tracking
+		tabID := fmt.Sprintf("%stab-%d", m.zoneID, i)
+		tabs = append(tabs, zone.Mark(tabID, style.Render(tabName)))
 	}
 
-	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	// Join tabs horizontally
+	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 	
-	// Add help indicator with spacing
-	helpIndicator := helpIndicatorStyle.Render("   ? help")
+	// Calculate space needed for help indicator
+	helpText := "? help"
+	helpWidth := lipgloss.Width(helpText) + 4 // +4 for padding
 	
-	headerContent := tabBar + helpIndicator
-	header := headerStyle.Width(m.width).Render(headerContent)
+	// Add gap to fill remaining space with bottom border
+	tabsWidth := lipgloss.Width(row)
+	gapWidth := max(0, m.width-tabsWidth-helpWidth)
+	gap := tabGap.Render(strings.Repeat(" ", gapWidth))
+	
+	// Join tabs and gap at the bottom (so gap's bottom border aligns)
+	row = lipgloss.JoinHorizontal(lipgloss.Bottom, row, gap)
+	
+	// Add help indicator at the end
+	helpIndicator := helpIndicatorStyle.Render(helpText)
+	header := row + helpIndicator
 
 	return header
 }

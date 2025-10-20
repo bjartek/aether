@@ -216,7 +216,7 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 	}()
 
 	// Only perform local setup in emulator mode
-	if a.Network == "" {
+	if a.Network == "emulator" {
 		a.Logger.Info().Msgf("%v Created accounts for emulator users in flow.json", emoji.Person)
 		o.InitializeContracts(ctx)
 

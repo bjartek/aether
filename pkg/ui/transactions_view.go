@@ -524,8 +524,13 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		tv.table.SetHeight(height)
 
 		// Update viewport size for full detail mode
+		// Calculate hint text height dynamically
+		hint := lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render("Press Tab or Esc to return to table view | j/k to scroll")
+		hintHeight := lipgloss.Height(hint) + 2 // +2 for spacing
 		tv.detailViewport.Width = width
-		tv.detailViewport.Height = height - 3 // Leave room for hint text
+		tv.detailViewport.Height = height - hintHeight
 
 	case tea.KeyMsg:
 		// Handle save mode
@@ -822,7 +827,7 @@ func (tv *TransactionsView) View() string {
 	// Split view mode - table on left, detail on right
 	// Calculate widths: 40% table, 60% details (wider details pane)
 	tableWidth := int(float64(tv.width) * 0.4)
-	detailWidth := tv.width - tableWidth - 2
+	detailWidth := max(10, tv.width-tableWidth-2) // Ensure minimum width
 
 	selectedIdx := tv.table.Cursor()
 	var detailView string
@@ -1064,169 +1069,22 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) stri
 }
 
 // renderTransactionDetail renders the detailed view of a transaction (for split view)
-// This version is height-constrained to prevent overflow
+// Uses the same full content as inspector view, just in a smaller viewport
 func (tv *TransactionsView) renderTransactionDetail(tx TransactionData, width, height int) string {
+	// Use pre-rendered detail (same as inspector view)
+	content := tx.preRenderedDetail
+	if content == "" {
+		// Fallback if not pre-rendered
+		content = tv.renderTransactionDetailText(tx)
+	}
+	
+	// Wrap in a style with max dimensions
 	detailStyle := lipgloss.NewStyle().
 		Width(width).
-		Height(height).
+		MaxHeight(height).
 		Padding(1)
 
-	// Render a condensed version that fits in the available height
-	content := tv.renderTransactionDetailCondensed(tx, height-2) // -2 for padding
 	return detailStyle.Render(content)
-}
-
-// renderTransactionDetailCondensed renders a height-aware condensed version
-func (tv *TransactionsView) renderTransactionDetailCondensed(tx TransactionData, maxLines int) string {
-	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
-	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
-
-	renderField := func(label, value string) string {
-		return fieldStyle.Render(fmt.Sprintf("%-12s", label+":")) + " " + valueStyleDetail.Render(value) + "\n"
-	}
-
-	var details strings.Builder
-	lineCount := 0
-
-	// Title
-	details.WriteString(fieldStyle.Render("Transaction Details") + "\n\n")
-	lineCount += 2
-
-	// Basic info (always show)
-	details.WriteString(renderField("ID", tx.ID))
-	details.WriteString(renderField("Block", fmt.Sprintf("%d", tx.BlockHeight)))
-	details.WriteString(renderField("Status", tx.Status))
-	lineCount += 3
-
-	if lineCount+1 < maxLines {
-		details.WriteString("\n")
-		lineCount++
-	}
-
-	// Account info table (minimum 2 lines: header + at least one value line)
-	minLinesNeeded := 2 + len(tx.Authorizers)
-	if lineCount+minLinesNeeded < maxLines {
-		// Use same column layout as full detail view
-		colWidth := 20
-		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Width(colWidth)
-		valueStyle := lipgloss.NewStyle().Foreground(accentColor).Width(colWidth)
-
-		// Headers
-		details.WriteString(headerStyle.Render("Proposer"))
-		details.WriteString(headerStyle.Render("Payer"))
-		details.WriteString(fieldStyle.Render("Authorizers"))
-		details.WriteString("\n")
-		lineCount++
-
-		// Format addresses with friendly names
-		proposerDisplay := tx.Proposer
-		if !tv.showRawAddresses && tv.accountRegistry != nil {
-			proposerDisplay = tv.accountRegistry.GetName(tx.Proposer)
-		}
-
-		payerDisplay := tx.Payer
-		if !tv.showRawAddresses && tv.accountRegistry != nil {
-			payerDisplay = tv.accountRegistry.GetName(tx.Payer)
-		}
-
-		for i, auth := range tx.Authorizers {
-			var authDisplay string
-			if !tv.showRawAddresses && tv.accountRegistry != nil {
-				authDisplay = tv.accountRegistry.GetName(auth)
-			} else {
-				authDisplay = auth
-			}
-
-			if i == 0 {
-				// First line with proposer, payer, and first authorizer
-				details.WriteString(valueStyle.Render(proposerDisplay))
-				details.WriteString(valueStyle.Render(payerDisplay))
-				details.WriteString(valueStyleDetail.Render(authDisplay))
-				details.WriteString("\n")
-				lineCount++
-			} else if lineCount < maxLines {
-				// Additional authorizers aligned under the authorizer column
-				details.WriteString(valueStyle.Render(""))
-				details.WriteString(valueStyle.Render(""))
-				details.WriteString(valueStyleDetail.Render(authDisplay))
-				details.WriteString("\n")
-				lineCount++
-			}
-		}
-	}
-
-	// Error (if present)
-	if tx.Error != "" && lineCount+2 < maxLines {
-		if lineCount+1 < maxLines {
-			details.WriteString("\n")
-			lineCount++
-		}
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", "Error:")) + " " + lipgloss.NewStyle().Foreground(errorColor).Render(tx.Error) + "\n")
-		lineCount++
-	}
-
-	// Events (show some if there's space)
-	if len(tx.Events) > 0 && lineCount+3 < maxLines {
-		if lineCount+1 < maxLines {
-			details.WriteString("\n")
-			lineCount++
-		}
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("Events (%d):", len(tx.Events))) + "\n")
-		lineCount++
-
-		eventsShown := 0
-		for i, event := range tx.Events {
-			if lineCount+2 >= maxLines {
-				break
-			}
-			details.WriteString(fmt.Sprintf("  %d. %s\n", i+1, fieldStyle.Render(event.Name)))
-			lineCount++
-			eventsShown++
-
-			// Only show event fields if showEventFields is true and there's space
-			if tv.showEventFields && len(event.Fields) > 0 && lineCount+len(event.Fields)+1 < maxLines {
-				keys := make([]string, 0, len(event.Fields))
-				for key := range event.Fields {
-					keys = append(keys, key)
-				}
-				sort.Strings(keys)
-
-				maxKeyLen := 0
-				for _, key := range keys {
-					if len(key) > maxKeyLen {
-						maxKeyLen = len(key)
-					}
-				}
-
-				for _, key := range keys {
-					if lineCount >= maxLines {
-						break
-					}
-					val := event.Fields[key]
-					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
-
-					// Format value with proper base indentation (7 spaces = 5 for event indent + 2 for nesting)
-					valStr := FormatFieldValueWithRegistry(val, "       ", tv.accountRegistry, tv.showRawAddresses)
-					details.WriteString(fmt.Sprintf("     %s: %s\n",
-						valueStyleDetail.Render(paddedKey),
-						valueStyleDetail.Render(valStr)))
-					lineCount++
-				}
-			}
-		}
-
-		if eventsShown < len(tx.Events) {
-			details.WriteString(fmt.Sprintf("  ... and %d more\n", len(tx.Events)-eventsShown))
-		}
-	}
-
-	// Hint to view full details
-	if lineCount+2 < maxLines {
-		details.WriteString("\n")
-		details.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Render("Press Tab for full details"))
-	}
-
-	return details.String()
 }
 
 // Stop is a no-op for the transactions view

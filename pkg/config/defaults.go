@@ -73,7 +73,7 @@ func DefaultConfig() *Config {
 			Defaults: DefaultsConfig{
 				ShowEventFields:  true,
 				ShowRawAddresses: false,
-				FullDetailMode:   true,
+				FullDetailMode:   false,
 			},
 			Filter: FilterConfig{
 				CharLimit: 50,

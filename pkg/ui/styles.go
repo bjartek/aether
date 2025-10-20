@@ -48,16 +48,49 @@ var (
 			BorderForeground(borderColor).
 			Padding(0, 1)
 
-	// Tab styles
+	// Tab border styles (inspired by bubblezone example)
+	activeTabBorder = lipgloss.Border{
+		Top:         "─",
+		Bottom:      " ",
+		Left:        "│",
+		Right:       "│",
+		TopLeft:     "╭",
+		TopRight:    "╮",
+		BottomLeft:  "┘",
+		BottomRight: "└",
+	}
+
+	tabBorder = lipgloss.Border{
+		Top:         "─",
+		Bottom:      "─",
+		Left:        "│",
+		Right:       "│",
+		TopLeft:     "╭",
+		TopRight:    "╮",
+		BottomLeft:  "┴",
+		BottomRight: "┴",
+	}
+
+	// Tab styles with borders
 	tabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
+			Border(tabBorder, true).
+			BorderForeground(mutedColor).
+			Padding(0, 1).
 			Foreground(mutedColor)
 
 	activeTabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Foreground(accentColor).
-			Background(primaryColor).
+			Border(activeTabBorder, true).
+			BorderForeground(primaryColor).
+			Padding(0, 1).
+			Foreground(primaryColor).
 			Bold(true)
+
+	tabGap = lipgloss.NewStyle().
+		BorderTop(false).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderBottom(true).
+		BorderForeground(mutedColor)
 
 	// Content styles
 	contentStyle = lipgloss.NewStyle().
