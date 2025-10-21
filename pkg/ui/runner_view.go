@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/chroma"
@@ -130,7 +129,6 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 
 // RunnerView manages the script/transaction runner interface
 type RunnerView struct {
-	mu                  sync.RWMutex
 	table               table.Model
 	codeViewport        viewport.Model
 	detailViewport      viewport.Model // Viewport for full detail mode
@@ -168,10 +166,9 @@ func NewRunnerView() *RunnerView {
 func NewRunnerViewWithConfig(cfg *config.Config) *RunnerView {
 	columns := []table.Column{
 		{Title: "Type", Width: 12},
-		{Title: "Name", Width: 35},
+		{Title: "Name", Width: 25},
 		{Title: "Network", Width: 10},
 	}
-
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
@@ -333,7 +330,7 @@ func (rv *RunnerView) scanFiles() {
 					Path:            path,
 					Type:            sp.typ,
 					Code:            codeStr,
-					HighlightedCode: chroma.HighlightCadenceWithStyleAndWidth(codeStr, "solarized-dark", rv.codeWrapWidth),
+					HighlightedCode: chroma.HighlightCadence(codeStr), // Highlight WITHOUT wrapping - let lipgloss wrap
 					Config:          config,
 					IsFromJSON:      true,
 					Network:         configNetwork,
@@ -380,7 +377,7 @@ func (rv *RunnerView) scanFiles() {
 					Path:            path,
 					Type:            sp.typ,
 					Code:            codeStr,
-					HighlightedCode: chroma.HighlightCadenceWithStyleAndWidth(codeStr, "solarized-dark", rv.codeWrapWidth),
+					HighlightedCode: chroma.HighlightCadence(codeStr), // Highlight WITHOUT wrapping - let lipgloss wrap
 					IsFromJSON:      false,
 					Network:         network,
 				}
@@ -405,7 +402,6 @@ func (rv *RunnerView) scanFiles() {
 		return files[i].Name < files[j].Name
 	})
 
-	rv.mu.Lock()
 	rv.scripts = files
 	rv.refreshTable()
 
@@ -414,7 +410,6 @@ func (rv *RunnerView) scanFiles() {
 		rv.setupInputFields(rv.scripts[0])
 		rv.updateCodeViewport(rv.scripts[0])
 	}
-	rv.mu.Unlock()
 }
 
 // detectNetwork determines the network from a filename
@@ -612,9 +607,6 @@ func (rv *RunnerView) Init() tea.Cmd {
 
 // SetAccountRegistry sets the account registry for signer name resolution
 func (rv *RunnerView) SetAccountRegistry(registry *aether.AccountRegistry) {
-	rv.mu.Lock()
-	defer rv.mu.Unlock()
-
 	rv.accountRegistry = registry
 
 	// Update available signers list from registry
@@ -625,15 +617,12 @@ func (rv *RunnerView) SetAccountRegistry(registry *aether.AccountRegistry) {
 
 // SetOverflow sets the overflow state for executing transactions/scripts
 func (rv *RunnerView) SetOverflow(o *overflow.OverflowState) {
-	rv.mu.Lock()
-	defer rv.mu.Unlock()
 	rv.overflow = o
 }
 
 // executeScriptCmd executes the selected script or transaction
 func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
-	// Capture values while holding the lock
-	rv.mu.RLock()
+	// Capture values for async execution
 	o := rv.overflow
 
 	// Build overflow options from input fields
@@ -659,7 +648,6 @@ func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
 			opts = append(opts, overflow.WithArg(field.Label, value))
 		}
 	}
-	rv.mu.RUnlock()
 
 	// Execute asynchronously without holding the lock
 	return func() tea.Msg {
@@ -852,20 +840,16 @@ func (rv *RunnerView) saveCurrentConfig(filename string, script ScriptFile) erro
 
 // Update handles messages for the runner view
 func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
-	rv.mu.Lock()
 	rv.width = width
 	rv.height = height
-	rv.mu.Unlock()
 
 	switch msg := msg.(type) {
 	case ExecutionCompleteMsg:
-		rv.mu.Lock()
 		rv.isExecuting = false
 		if msg.Error != nil {
 			rv.executionError = msg.Error
 			rv.executionResult = ""
 		} else {
-			rv.executionError = nil
 			// Format result based on type
 			if msg.IsScript && msg.ScriptResult != nil {
 				// Show detailed script output
@@ -877,7 +861,6 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				rv.executionResult = "✓ Execution successful"
 			}
 		}
-		rv.mu.Unlock()
 		return nil
 
 	case RescanFilesMsg:
@@ -886,21 +869,14 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		return nil
 
 	case spinner.TickMsg:
-		rv.mu.RLock()
-		isExecuting := rv.isExecuting
-		rv.mu.RUnlock()
-
-		if isExecuting {
-			rv.mu.Lock()
+		if rv.isExecuting {
 			var cmd tea.Cmd
 			rv.spinner, cmd = rv.spinner.Update(msg)
-			rv.mu.Unlock()
 			return cmd
 		}
 		return nil
 
 	case tea.WindowSizeMsg:
-		rv.mu.Lock()
 		if !rv.ready {
 			rv.ready = true
 		}
@@ -925,32 +901,23 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		// Update split view detail viewport size
 		rv.splitDetailViewport.Width = detailWidth
 		rv.splitDetailViewport.Height = height
-		rv.mu.Unlock()
 
 	case tea.KeyMsg:
 		// Handle save dialog if active
-		rv.mu.RLock()
-		isSaving := rv.savingConfig
-		rv.mu.RUnlock()
-
-		if isSaving {
+		if rv.savingConfig {
 			switch {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 				// Cancel save
-				rv.mu.Lock()
 				rv.savingConfig = false
 				rv.saveInput.SetValue("")
 				rv.saveInput.Blur()
 				rv.saveError = ""
-				rv.mu.Unlock()
 				return nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				// Perform save
-				rv.mu.Lock()
 				filename := rv.saveInput.Value()
 				if filename == "" {
 					rv.saveError = "Filename cannot be empty"
-					rv.mu.Unlock()
 					return nil
 				}
 
@@ -966,35 +933,27 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 						rv.saveInput.Blur()
 						rv.saveError = ""
 						// Rescan to pick up the new file
-						rv.mu.Unlock()
 						rv.scanFiles()
 						return nil
 					}
 				}
-				rv.mu.Unlock()
 				return nil
 			default:
 				// Pass input to save textinput
-				rv.mu.Lock()
 				var cmd tea.Cmd
 				rv.saveInput, cmd = rv.saveInput.Update(msg)
-				rv.mu.Unlock()
 				return cmd
 			}
 		}
 
 		// Check if we're in full detail mode
-		rv.mu.RLock()
 		inFullDetail := rv.fullDetailMode
 		isEditing := rv.editingField
 		hasFields := len(rv.inputFields) > 0
-		rv.mu.RUnlock()
 
 		// Handle Esc to exit full detail view (only if not editing a field)
 		if inFullDetail && !isEditing && key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
-			rv.mu.Lock()
 			rv.fullDetailMode = false
-			rv.mu.Unlock()
 			return nil
 		}
 
@@ -1002,51 +961,39 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if inFullDetail && isEditing && hasFields {
 			switch {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-				rv.mu.Lock()
 				rv.editingField = false
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
-				rv.mu.Unlock()
 				return nil
 			case key.Matches(msg, rv.keys.NextField): // tab
-				rv.mu.Lock()
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
 				// Move to next field and auto-focus it
 				if rv.activeFieldIndex < len(rv.inputFields)-1 {
 					rv.activeFieldIndex++
 					rv.inputFields[rv.activeFieldIndex].Input.Focus()
-					rv.mu.Unlock()
 					return textinput.Blink
 				}
 				// Last field - exit editing mode
 				rv.editingField = false
-				rv.mu.Unlock()
 				return nil
 			case key.Matches(msg, rv.keys.PrevField): // shift+tab
-				rv.mu.Lock()
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
 				// Move to previous field and auto-focus it
 				if rv.activeFieldIndex > 0 {
 					rv.activeFieldIndex--
 					rv.inputFields[rv.activeFieldIndex].Input.Focus()
-					rv.mu.Unlock()
 					return textinput.Blink
 				}
 				// First field - exit editing mode
 				rv.editingField = false
-				rv.mu.Unlock()
 				return nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				// Enter just exits editing mode
-				rv.mu.Lock()
 				rv.editingField = false
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
-				rv.mu.Unlock()
 				return nil
 			default:
-				rv.mu.Lock()
 				var cmd tea.Cmd
 				rv.inputFields[rv.activeFieldIndex].Input, cmd = rv.inputFields[rv.activeFieldIndex].Input.Update(msg)
-				rv.mu.Unlock()
 				return cmd
 			}
 		}
@@ -1055,7 +1002,6 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		switch {
 		case key.Matches(msg, rv.keys.Run):
 			// Execute the script/transaction
-			rv.mu.Lock()
 			if !rv.isExecuting {
 				selectedIdx := rv.table.Cursor()
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
@@ -1063,20 +1009,17 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 					rv.executionResult = ""
 					rv.executionError = nil
 					script := rv.scripts[selectedIdx]
-					rv.mu.Unlock()
 					return tea.Batch(
 						rv.executeScriptCmd(script),
 						rv.spinner.Tick,
 					)
 				}
 			}
-			rv.mu.Unlock()
 			return nil
 
 		case key.Matches(msg, rv.keys.Enter):
 			// Enter/Space toggles full detail mode (when not editing)
 			if !isEditing {
-				rv.mu.Lock()
 				wasFullMode := rv.fullDetailMode
 				rv.fullDetailMode = !rv.fullDetailMode
 				// When entering full detail mode, auto-focus first field if available
@@ -1086,22 +1029,18 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 						rv.activeFieldIndex = 0
 						rv.editingField = true
 						rv.inputFields[0].Input.Focus()
-						rv.mu.Unlock()
 						return textinput.Blink
 					}
 				}
-				rv.mu.Unlock()
 				return nil
 			}
 			return nil
 
 		case key.Matches(msg, rv.keys.Save):
 			// Activate save dialog
-			rv.mu.Lock()
 			rv.savingConfig = true
 			rv.saveInput.Focus()
 			rv.saveError = ""
-			rv.mu.Unlock()
 			return textinput.Blink
 
 		case key.Matches(msg, rv.keys.Refresh):
@@ -1113,16 +1052,12 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("i"))):
 			// 'i' to start editing in full detail mode
 			if inFullDetail && !isEditing {
-				rv.mu.RLock()
 				hasFields = len(rv.inputFields) > 0
 				activeIdx := rv.activeFieldIndex
-				rv.mu.RUnlock()
 
 				if hasFields {
-					rv.mu.Lock()
 					rv.editingField = true
 					rv.inputFields[activeIdx].Input.Focus()
-					rv.mu.Unlock()
 					return textinput.Blink
 				}
 			}
@@ -1131,24 +1066,19 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		case key.Matches(msg, rv.keys.Down), key.Matches(msg, rv.keys.NextField):
 			// In full detail mode, scroll viewport or navigate form fields
 			if inFullDetail {
-				rv.mu.Lock()
 				// If not editing, scroll the viewport
 				if !isEditing {
 					rv.detailViewport.LineDown(1)
-					rv.mu.Unlock()
 					return nil
 				}
 				// If editing, navigate form fields
 				if len(rv.inputFields) > 0 && rv.activeFieldIndex < len(rv.inputFields)-1 {
 					rv.activeFieldIndex++
-					rv.mu.Unlock()
 					return nil
 				}
-				rv.mu.Unlock()
 				return nil
 			}
 			// In split view, navigate table
-			rv.mu.Lock()
 			var cmd tea.Cmd
 			rv.table, cmd = rv.table.Update(msg)
 			// Update input fields for selected script and clear previous results
@@ -1160,30 +1090,24 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				rv.executionResult = ""
 				rv.executionError = nil
 			}
-			rv.mu.Unlock()
 			return cmd
 
 		case key.Matches(msg, rv.keys.Up), key.Matches(msg, rv.keys.PrevField):
 			// In full detail mode, scroll viewport or navigate form fields
 			if inFullDetail {
-				rv.mu.Lock()
 				// If not editing, scroll the viewport
 				if !isEditing {
 					rv.detailViewport.LineUp(1)
-					rv.mu.Unlock()
 					return nil
 				}
 				// If editing, navigate form fields
 				if len(rv.inputFields) > 0 && rv.activeFieldIndex > 0 {
 					rv.activeFieldIndex--
-					rv.mu.Unlock()
 					return nil
 				}
-				rv.mu.Unlock()
 				return nil
 			}
 			// In split view, navigate table
-			rv.mu.Lock()
 			var cmd tea.Cmd
 			rv.table, cmd = rv.table.Update(msg)
 			// Update input fields for selected script and clear previous results
@@ -1195,16 +1119,13 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				rv.executionResult = ""
 				rv.executionError = nil
 			}
-			rv.mu.Unlock()
 			return cmd
 
 		default:
 			// In split view, pass to table for other keys
 			if !inFullDetail {
-				rv.mu.Lock()
 				var cmd tea.Cmd
 				rv.table, cmd = rv.table.Update(msg)
-				rv.mu.Unlock()
 				return cmd
 			}
 		}
@@ -1218,9 +1139,6 @@ func (rv *RunnerView) View() string {
 	if !rv.ready {
 		return "Loading runner..."
 	}
-
-	rv.mu.RLock()
-	defer rv.mu.RUnlock()
 
 	if len(rv.scripts) == 0 {
 		return lipgloss.NewStyle().
@@ -1250,15 +1168,11 @@ func (rv *RunnerView) View() string {
 		return "No script selected"
 	}
 
-	// Table on left - using configured percentage
+	// Split view mode - table on left, detail on right
+	// Calculate widths using configured percentages
 	tableWidth := int(float64(rv.width) * float64(rv.tableWidthPercent) / 100.0)
 
-	tableView := lipgloss.NewStyle().
-		Width(tableWidth).
-		MaxHeight(rv.height).
-		Render(rv.table.View())
-
-	// Update split detail viewport with current script
+	// Update split detail viewport with current script (before rendering table - same order as transactions_view)
 	selectedIdx := rv.table.Cursor()
 	if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 		currentWidth := rv.splitDetailViewport.Width
@@ -1270,8 +1184,7 @@ func (rv *RunnerView) View() string {
 
 		// Just render fresh every time - no caching, no optimization
 		content := rv.renderDetailText(script, currentWidth)
-		// Wrap content with lipgloss before SetContent (per memory pattern)
-		wrappedContent := lipgloss.NewStyle().Width(currentWidth).Height(rv.height).Render(content)
+		wrappedContent := lipgloss.NewStyle().Width(currentWidth).Render(content)
 
 		rv.splitDetailViewport.SetContent(wrappedContent)
 		rv.splitDetailViewport.GotoTop()
@@ -1279,6 +1192,12 @@ func (rv *RunnerView) View() string {
 		rv.splitDetailViewport.SetContent("No script selected")
 		rv.splitDetailViewport.GotoTop()
 	}
+
+	// Style table
+	tableView := lipgloss.NewStyle().
+		Width(tableWidth).
+		MaxHeight(rv.height).
+		Render(rv.table.View())
 
 	// Render split detail viewport (viewport itself handles width/height constraints)
 	detailView := rv.splitDetailViewport.View()
@@ -1345,20 +1264,15 @@ func (rv *RunnerView) renderDetailText(script ScriptFile, width int) string {
 		details.WriteString("\n")
 	}
 
-	// Code - always wrap to viewport width for correct display
+	// Code - use pre-highlighted code (just like transactions_view)
 	details.WriteString(fieldStyle.Render("Code:") + "\n")
-	// Always re-wrap at viewport width to ensure proper wrapping
-	if width > 0 {
-		code := chroma.HighlightCadenceWithStyleAndWidth(script.Code, "solarized-dark", width)
-		details.WriteString(code + "\n")
-	} else {
-		// Fallback to pre-wrapped code if width unknown
-		code := script.HighlightedCode
-		if code == "" {
-			code = script.Code
-		}
-		details.WriteString(code + "\n")
+	// Show syntax-highlighted code if available, otherwise raw code
+	codeToShow := script.HighlightedCode
+	if codeToShow == "" {
+		codeToShow = script.Code
 	}
+	// Don't wrap in valueStyleDetail since highlighted code already has colors
+	details.WriteString(codeToShow + "\n")
 
 	return details.String()
 }
@@ -1439,23 +1353,17 @@ func (rv *RunnerView) renderDetailForViewport(script ScriptFile, width int) stri
 		content.WriteString(hintStyle.Render("No parameters required. Press r to run, s to save") + "\n\n")
 	}
 
-	// Code section - always wrap to viewport width for correct display
+	// Code section - use pre-highlighted code (just like transactions_view)
 	codeTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Code:")
 	content.WriteString(codeTitle + "\n")
 
-	// Always re-wrap at viewport width to ensure proper wrapping
-	effectiveWidth := width - 4 // Account for padding
-	if effectiveWidth > 0 {
-		code := chroma.HighlightCadenceWithStyleAndWidth(script.Code, "solarized-dark", effectiveWidth)
-		content.WriteString(code + "\n")
-	} else {
-		// Fallback to pre-wrapped code if width unknown
-		code := script.HighlightedCode
-		if code == "" {
-			code = script.Code
-		}
-		content.WriteString(code + "\n")
+	// Show syntax-highlighted code if available, otherwise raw code
+	codeToShow := script.HighlightedCode
+	if codeToShow == "" {
+		codeToShow = script.Code
 	}
+	// Don't wrap in valueStyleDetail since highlighted code already has colors
+	content.WriteString(codeToShow + "\n")
 
 	return detailStyle.Render(content.String())
 }

@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -35,7 +34,6 @@ type ServiceInfo struct {
 
 // DashboardView displays service information and guidelines
 type DashboardView struct {
-	mu       sync.RWMutex
 	services []ServiceInfo
 	ready    bool
 }
@@ -71,9 +69,6 @@ func (dv *DashboardView) View() string {
 	if !dv.ready {
 		return "Loading dashboard..."
 	}
-
-	dv.mu.RLock()
-	defer dv.mu.RUnlock()
 
 	var content string
 

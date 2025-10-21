@@ -518,9 +518,7 @@ func (m Model) getActiveKeyMap() help.KeyMap {
 	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
 		keys.Events = &m.eventsView.keys
 	} else if m.activeTab == m.runnerTabIndex && m.runnerView != nil {
-		m.runnerView.mu.RLock()
 		keys.Runner = &m.runnerView.keys
-		m.runnerView.mu.RUnlock()
 	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
 		keys.Logs = &m.logsView.keys
 	}
@@ -601,10 +599,8 @@ func (k CombinedKeyMap) FullHelp() [][]key.Binding {
 func (m Model) isInTextInputMode() bool {
 	// Check transactions view filter/save mode
 	if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
-		m.transactionsView.mu.RLock()
 		inFilter := m.transactionsView.filterMode
 		inSave := m.transactionsView.savingMode
-		m.transactionsView.mu.RUnlock()
 		if inFilter || inSave {
 			return true
 		}
@@ -612,9 +608,7 @@ func (m Model) isInTextInputMode() bool {
 	
 	// Check events view filter mode
 	if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
-		m.eventsView.mu.RLock()
 		inFilter := m.eventsView.filterMode
-		m.eventsView.mu.RUnlock()
 		if inFilter {
 			return true
 		}
@@ -622,10 +616,8 @@ func (m Model) isInTextInputMode() bool {
 	
 	// Check runner view editing/saving mode
 	if m.activeTab == m.runnerTabIndex && m.runnerView != nil {
-		m.runnerView.mu.RLock()
 		inEdit := m.runnerView.editingField
 		inSave := m.runnerView.savingConfig
-		m.runnerView.mu.RUnlock()
 		if inEdit || inSave {
 			return true
 		}

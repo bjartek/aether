@@ -72,8 +72,8 @@ func DefaultConfig() *Config {
 					CodeWrapWidth:      160,
 				},
 				Runner: ViewLayoutConfig{
-					TableWidthPercent:  30,
-					DetailWidthPercent: 70,
+					TableWidthPercent:  40,
+					DetailWidthPercent: 60,
 					CodeWrapWidth:      160,
 				},
 			},

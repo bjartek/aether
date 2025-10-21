@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
@@ -77,7 +76,6 @@ func DefaultEventsKeyMap() EventsKeyMap {
 
 // EventsView manages the events table and detail display
 type EventsView struct {
-	mu                  sync.RWMutex
 	table               table.Model
 	detailViewport      viewport.Model // For full detail mode
 	splitDetailViewport viewport.Model // For split view detail panel
@@ -204,9 +202,6 @@ func truncateString(s string, maxLen int) string {
 
 // AddEvent adds a new event from transaction processing
 func (ev *EventsView) AddEvent(blockHeight uint64, blockID string, txID string, txIndex int, event overflow.OverflowEvent, eventIndex int, registry *aether.AccountRegistry) {
-	ev.mu.Lock()
-	defer ev.mu.Unlock()
-
 	// Store registry for use in rendering
 	if registry != nil {
 		ev.accountRegistry = registry
@@ -331,27 +326,21 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				ev.filterMode = false
 				ev.filterText = ""
 				ev.filterInput.SetValue("")
-				ev.mu.Lock()
 				ev.applyFilter()
 				ev.refreshTable()
-				ev.mu.Unlock()
 				return nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				ev.filterMode = false
 				ev.filterText = ev.filterInput.Value()
-				ev.mu.Lock()
 				ev.applyFilter()
 				ev.refreshTable()
-				ev.mu.Unlock()
 				return nil
 			default:
 				var cmd tea.Cmd
 				ev.filterInput, cmd = ev.filterInput.Update(msg)
 				ev.filterText = ev.filterInput.Value()
-				ev.mu.Lock()
 				ev.applyFilter()
 				ev.refreshTable()
-				ev.mu.Unlock()
 				return cmd
 			}
 		}
@@ -368,9 +357,7 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			wasFullMode := ev.fullDetailMode
 			ev.fullDetailMode = !ev.fullDetailMode
 			if !wasFullMode && ev.fullDetailMode {
-				ev.mu.RLock()
 				ev.updateDetailViewport()
-				ev.mu.RUnlock()
 			}
 			return nil
 		}
@@ -384,11 +371,9 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		// Handle toggle raw addresses
 		if key.Matches(msg, ev.keys.ToggleRawAddresses) {
 			ev.showRawAddresses = !ev.showRawAddresses
-			ev.mu.Lock()
 			if ev.fullDetailMode {
 				ev.updateDetailViewport()
 			}
-			ev.mu.Unlock()
 			return nil
 		}
 
@@ -406,9 +391,7 @@ func (ev *EventsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			// If cursor changed, update viewport content and reset scroll to top
 			newCursor := ev.table.Cursor()
 			if prevCursor != newCursor {
-				ev.mu.RLock()
 				ev.updateDetailViewport()
-				ev.mu.RUnlock()
 			}
 			return cmd
 		}
@@ -422,9 +405,6 @@ func (ev *EventsView) View() string {
 	if !ev.ready {
 		return "Loading events..."
 	}
-
-	ev.mu.RLock()
-	defer ev.mu.RUnlock()
 
 	if len(ev.events) == 0 {
 		return lipgloss.NewStyle().

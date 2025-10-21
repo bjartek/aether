@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
@@ -130,7 +129,6 @@ func DefaultTransactionsKeyMap() TransactionsKeyMap {
 
 // TransactionsView manages the transactions table and detail display
 type TransactionsView struct {
-	mu                  sync.RWMutex
 	table               table.Model
 	detailViewport      viewport.Model // For full detail mode
 	splitDetailViewport viewport.Model // For split view detail panel
@@ -274,9 +272,6 @@ func truncateHex(s string, startLen, endLen int) string {
 
 // AddTransaction adds a new transaction from an OverflowTransaction
 func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, ot overflow.OverflowTransaction, registry *aether.AccountRegistry) {
-	tv.mu.Lock()
-	defer tv.mu.Unlock()
-
 	// Store registry for use in rendering
 	if registry != nil {
 		tv.accountRegistry = registry
@@ -547,7 +542,6 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 
 				// Get selected transaction from the currently displayed list
 				selectedIdx := tv.table.Cursor()
-				tv.mu.RLock()
 
 				// Use the same logic as refreshTable - check which list is displayed
 				txList := tv.transactions
@@ -556,12 +550,10 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				}
 
 				if selectedIdx < 0 || selectedIdx >= len(txList) {
-					tv.mu.RUnlock()
 					tv.saveError = "No transaction selected"
 					return nil
 				}
 				tx := txList[selectedIdx]
-				tv.mu.RUnlock()
 
 				// Perform save
 				err := tv.saveTransaction(filename, tx)
@@ -594,19 +586,15 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				tv.filterMode = false
 				tv.filterText = ""
 				tv.filterInput.SetValue("")
-				tv.mu.Lock()
 				tv.applyFilter()
 				tv.refreshTable()
-				tv.mu.Unlock()
 				return nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				// Apply filter and exit filter mode
 				tv.filterMode = false
 				tv.filterText = tv.filterInput.Value()
-				tv.mu.Lock()
 				tv.applyFilter()
 				tv.refreshTable()
-				tv.mu.Unlock()
 				return nil
 			default:
 				// Pass input to filter textinput
@@ -614,10 +602,8 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 				tv.filterInput, cmd = tv.filterInput.Update(msg)
 				// Update filter in real-time
 				tv.filterText = tv.filterInput.Value()
-				tv.mu.Lock()
 				tv.applyFilter()
 				tv.refreshTable()
-				tv.mu.Unlock()
 				return cmd
 			}
 		}
@@ -635,9 +621,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			tv.fullDetailMode = !tv.fullDetailMode
 			// Update viewport content when entering full detail mode
 			if !wasFullMode && tv.fullDetailMode {
-				tv.mu.RLock()
 				tv.updateDetailViewport()
-				tv.mu.RUnlock()
 			}
 			return nil
 		}
@@ -652,11 +636,9 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if key.Matches(msg, tv.keys.ToggleEventFields) {
 			tv.showEventFields = !tv.showEventFields
 			// Refresh full detail viewport if needed
-			tv.mu.Lock()
 			if tv.fullDetailMode {
 				tv.updateDetailViewport()
 			}
-			tv.mu.Unlock()
 			return nil
 		}
 
@@ -664,12 +646,10 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 		if key.Matches(msg, tv.keys.ToggleRawAddresses) {
 			tv.showRawAddresses = !tv.showRawAddresses
 			// Refresh table and full detail viewport if needed
-			tv.mu.Lock()
 			tv.refreshTable()
 			if tv.fullDetailMode {
 				tv.updateDetailViewport()
 			}
-			tv.mu.Unlock()
 			return nil
 		}
 
@@ -696,9 +676,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			// If cursor changed, update viewport content and reset scroll to top
 			newCursor := tv.table.Cursor()
 			if prevCursor != newCursor {
-				tv.mu.RLock()
 				tv.updateDetailViewport()
-				tv.mu.RUnlock()
 			}
 			return cmd
 		}
@@ -755,11 +733,8 @@ func (tv *TransactionsView) saveTransaction(filename string, tx TransactionData)
 // View renders the transactions view
 func (tv *TransactionsView) View() string {
 	if !tv.ready {
-		return "Loading transactions..."
+		return fmt.Sprintf("Loading transactions... tableWidth:%d detailWidth:%d", tv.tableWidthPercent, tv.detailWidthPercent)
 	}
-
-	tv.mu.RLock()
-	defer tv.mu.RUnlock()
 
 	if len(tv.transactions) == 0 {
 		return lipgloss.NewStyle().
