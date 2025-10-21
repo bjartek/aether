@@ -115,6 +115,7 @@ type LayoutConfig struct {
 type ViewLayoutConfig struct {
 	TableWidthPercent  int `mapstructure:"table_width_percent"`
 	DetailWidthPercent int `mapstructure:"detail_width_percent"`
+	CodeWrapWidth      int `mapstructure:"code_wrap_width"` // Width for wrapping code with syntax highlighting (0 = no wrap)
 }
 
 // DefaultsConfig contains default display modes

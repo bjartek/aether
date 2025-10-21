@@ -142,6 +142,7 @@ type RunnerView struct {
 	height              int
 	tableWidthPercent   int  // Configurable table width percentage
 	detailWidthPercent  int  // Configurable detail width percentage
+	codeWrapWidth       int  // Configurable code wrap width (0 = no wrap)
 	fullDetailMode      bool // Toggle between split and full-screen detail view
 	accountRegistry     *aether.AccountRegistry
 	inputFields         []InputField
@@ -220,6 +221,7 @@ func NewRunnerViewWithConfig(cfg *config.Config) *RunnerView {
 
 	tableWidthPercent := cfg.UI.Layout.Runner.TableWidthPercent
 	detailWidthPercent := cfg.UI.Layout.Runner.DetailWidthPercent
+	codeWrapWidth := cfg.UI.Layout.Runner.CodeWrapWidth
 
 	rv := &RunnerView{
 		table:               t,
@@ -234,6 +236,7 @@ func NewRunnerViewWithConfig(cfg *config.Config) *RunnerView {
 		editingField:        false,
 		tableWidthPercent:   tableWidthPercent,
 		detailWidthPercent:  detailWidthPercent,
+		codeWrapWidth:       codeWrapWidth,
 		fullDetailMode:      false,
 		spinner:             sp,
 		isExecuting:         false,
@@ -330,7 +333,7 @@ func (rv *RunnerView) scanFiles() {
 					Path:            path,
 					Type:            sp.typ,
 					Code:            codeStr,
-					HighlightedCode: chroma.HighlightCadenceWithStyleAndWidth(codeStr, "solarized-dark", 160),
+					HighlightedCode: chroma.HighlightCadenceWithStyleAndWidth(codeStr, "solarized-dark", rv.codeWrapWidth),
 					Config:          config,
 					IsFromJSON:      true,
 					Network:         configNetwork,
@@ -377,7 +380,7 @@ func (rv *RunnerView) scanFiles() {
 					Path:            path,
 					Type:            sp.typ,
 					Code:            codeStr,
-					HighlightedCode: chroma.HighlightCadenceWithStyleAndWidth(codeStr, "solarized-dark", 160),
+					HighlightedCode: chroma.HighlightCadenceWithStyleAndWidth(codeStr, "solarized-dark", rv.codeWrapWidth),
 					IsFromJSON:      false,
 					Network:         network,
 				}
@@ -1126,9 +1129,16 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			return nil
 
 		case key.Matches(msg, rv.keys.Down), key.Matches(msg, rv.keys.NextField):
-			// In full detail mode, navigate form fields
+			// In full detail mode, scroll viewport or navigate form fields
 			if inFullDetail {
 				rv.mu.Lock()
+				// If not editing, scroll the viewport
+				if !isEditing {
+					rv.detailViewport.LineDown(1)
+					rv.mu.Unlock()
+					return nil
+				}
+				// If editing, navigate form fields
 				if len(rv.inputFields) > 0 && rv.activeFieldIndex < len(rv.inputFields)-1 {
 					rv.activeFieldIndex++
 					rv.mu.Unlock()
@@ -1154,9 +1164,16 @@ func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			return cmd
 
 		case key.Matches(msg, rv.keys.Up), key.Matches(msg, rv.keys.PrevField):
-			// In full detail mode, navigate form fields
+			// In full detail mode, scroll viewport or navigate form fields
 			if inFullDetail {
 				rv.mu.Lock()
+				// If not editing, scroll the viewport
+				if !isEditing {
+					rv.detailViewport.LineUp(1)
+					rv.mu.Unlock()
+					return nil
+				}
+				// If editing, navigate form fields
 				if len(rv.inputFields) > 0 && rv.activeFieldIndex > 0 {
 					rv.activeFieldIndex--
 					rv.mu.Unlock()
@@ -1216,15 +1233,15 @@ func (rv *RunnerView) View() string {
 		selectedIdx := rv.table.Cursor()
 		if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 			script := rv.scripts[selectedIdx]
-			
+
 			// Set viewport to full screen dimensions
 			rv.detailViewport.Width = rv.width
 			rv.detailViewport.Height = rv.height - 3 // Leave room for hint
-			
+
 			// Render all content into viewport for scrolling
 			content := rv.renderDetailForViewport(script, rv.detailViewport.Width)
 			rv.detailViewport.SetContent(content)
-			
+
 			hint := lipgloss.NewStyle().
 				Foreground(mutedColor).
 				Render("Press Tab or Esc to return to table view")
@@ -1252,10 +1269,11 @@ func (rv *RunnerView) View() string {
 		script := rv.scripts[selectedIdx]
 
 		// Just render fresh every time - no caching, no optimization
-		// Don't wrap here - code is already wrapped inside HighlightCadenceWithStyleAndWidth
 		content := rv.renderDetailText(script, currentWidth)
-		
-		rv.splitDetailViewport.SetContent(content)
+		// Wrap content with lipgloss before SetContent (per memory pattern)
+		wrappedContent := lipgloss.NewStyle().Width(currentWidth).Height(rv.height).Render(content)
+
+		rv.splitDetailViewport.SetContent(wrappedContent)
 		rv.splitDetailViewport.GotoTop()
 	} else {
 		rv.splitDetailViewport.SetContent("No script selected")
@@ -1327,13 +1345,20 @@ func (rv *RunnerView) renderDetailText(script ScriptFile, width int) string {
 		details.WriteString("\n")
 	}
 
-	// Code - use pre-wrapped and highlighted code
+	// Code - always wrap to viewport width for correct display
 	details.WriteString(fieldStyle.Render("Code:") + "\n")
-	code := script.HighlightedCode
-	if code == "" {
-		code = script.Code
+	// Always re-wrap at viewport width to ensure proper wrapping
+	if width > 0 {
+		code := chroma.HighlightCadenceWithStyleAndWidth(script.Code, "solarized-dark", width)
+		details.WriteString(code + "\n")
+	} else {
+		// Fallback to pre-wrapped code if width unknown
+		code := script.HighlightedCode
+		if code == "" {
+			code = script.Code
+		}
+		details.WriteString(code + "\n")
 	}
-	details.WriteString(code + "\n")
 
 	return details.String()
 }
@@ -1414,15 +1439,23 @@ func (rv *RunnerView) renderDetailForViewport(script ScriptFile, width int) stri
 		content.WriteString(hintStyle.Render("No parameters required. Press r to run, s to save") + "\n\n")
 	}
 
-	// Code section - use pre-wrapped and highlighted code
+	// Code section - always wrap to viewport width for correct display
 	codeTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Code:")
 	content.WriteString(codeTitle + "\n")
-	
-	code := script.HighlightedCode
-	if code == "" {
-		code = script.Code
+
+	// Always re-wrap at viewport width to ensure proper wrapping
+	effectiveWidth := width - 4 // Account for padding
+	if effectiveWidth > 0 {
+		code := chroma.HighlightCadenceWithStyleAndWidth(script.Code, "solarized-dark", effectiveWidth)
+		content.WriteString(code + "\n")
+	} else {
+		// Fallback to pre-wrapped code if width unknown
+		code := script.HighlightedCode
+		if code == "" {
+			code = script.Code
+		}
+		content.WriteString(code + "\n")
 	}
-	content.WriteString(code + "\n")
 
 	return detailStyle.Render(content.String())
 }

@@ -64,14 +64,17 @@ func DefaultConfig() *Config {
 				Transactions: ViewLayoutConfig{
 					TableWidthPercent:  40,
 					DetailWidthPercent: 60,
+					CodeWrapWidth:      160,
 				},
 				Events: ViewLayoutConfig{
 					TableWidthPercent:  50,
 					DetailWidthPercent: 50,
+					CodeWrapWidth:      160,
 				},
 				Runner: ViewLayoutConfig{
 					TableWidthPercent:  30,
 					DetailWidthPercent: 70,
+					CodeWrapWidth:      160,
 				},
 			},
 			Defaults: DefaultsConfig{
