@@ -63,8 +63,8 @@ type TransactionData struct {
 	EVMTransactions   []EVMTransactionData // Decoded EVM transactions
 	Type              TransactionType      // Transaction type (flow/evm/mixed)
 	Error             string
-	Timestamp time.Time
-	Index     int
+	Timestamp         time.Time
+	Index             int
 }
 
 // TransactionMsg is sent when a new transaction is received
@@ -230,7 +230,7 @@ func NewTransactionsViewWithConfig(cfg *config.Config) *TransactionsView {
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
-	
+
 	showEventFields := cfg.UI.Defaults.ShowEventFields
 	showRawAddresses := cfg.UI.Defaults.ShowRawAddresses
 	fullDetailMode := cfg.UI.Defaults.FullDetailMode
@@ -409,7 +409,7 @@ func (tv *TransactionsView) updateDetailViewport() {
 			return
 		}
 		// Render fresh
-		content := tv.renderTransactionDetailText(tv.transactions[selectedIdx], tv.detailViewport.Width)
+		content := tv.renderTransactionDetailText(tv.transactions[selectedIdx])
 		tv.detailViewport.SetContent(content)
 		tv.detailViewport.GotoTop() // Always start at top
 	}
@@ -672,7 +672,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 			prevCursor := tv.table.Cursor()
 			var cmd tea.Cmd
 			tv.table, cmd = tv.table.Update(msg)
-			
+
 			// If cursor changed, update viewport content and reset scroll to top
 			newCursor := tv.table.Cursor()
 			if prevCursor != newCursor {
@@ -806,13 +806,13 @@ func (tv *TransactionsView) View() string {
 		if currentWidth == 0 {
 			currentWidth = 100 // Default
 		}
-		
+
 		tx := tv.transactions[selectedIdx]
-		
+
 		// Just render fresh every time - no caching, no optimization
-		content := tv.renderTransactionDetailText(tx, currentWidth)
+		content := tv.renderTransactionDetailText(tx)
 		wrappedContent := lipgloss.NewStyle().Width(currentWidth).Render(content)
-		
+
 		tv.splitDetailViewport.SetContent(wrappedContent)
 		tv.splitDetailViewport.GotoTop()
 	} else {
@@ -846,7 +846,7 @@ func (tv *TransactionsView) View() string {
 
 // renderTransactionDetailText renders transaction details as plain text (for viewport)
 // width specifies the maximum width for text wrapping (0 = no wrapping)
-func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData, width int) string {
+func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) string {
 	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
 	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
 
@@ -1050,20 +1050,6 @@ func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData, widt
 	}
 
 	return details.String()
-}
-
-// renderTransactionDetail renders the detailed view of a transaction (for split view)
-// Uses the same full content as inspector view, just in a smaller viewport
-func (tv *TransactionsView) renderTransactionDetail(tx TransactionData, width, height int) string {
-	// Render fresh
-	content := tv.renderTransactionDetailText(tx, width)
-	
-	// Apply padding only - don't constrain width to avoid reflowing already-styled content
-	// The parent container will handle clipping
-	detailStyle := lipgloss.NewStyle().
-		Padding(1, 2)
-
-	return detailStyle.Render(content)
 }
 
 // Stop is a no-op for the transactions view

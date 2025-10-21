@@ -1157,7 +1157,7 @@ func (rv *RunnerView) View() string {
 			rv.detailViewport.Height = rv.height - 3 // Leave room for hint
 
 			// Render all content into viewport for scrolling
-			content := rv.renderDetailForViewport(script, rv.detailViewport.Width)
+			content := rv.renderDetailForViewport(script)
 			rv.detailViewport.SetContent(content)
 
 			hint := lipgloss.NewStyle().
@@ -1278,7 +1278,7 @@ func (rv *RunnerView) renderDetailText(script ScriptFile, width int) string {
 }
 
 // renderDetailForViewport renders the detail view with form and code for viewport (full detail mode with input forms)
-func (rv *RunnerView) renderDetailForViewport(script ScriptFile, width int) string {
+func (rv *RunnerView) renderDetailForViewport(script ScriptFile) string {
 	// Don't apply width constraint to avoid truncating styled content
 	detailStyle := lipgloss.NewStyle().
 		Padding(1, 2)
