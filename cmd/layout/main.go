@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bjartek/aether/pkg/chroma"
@@ -31,14 +32,19 @@ type tabbedModel struct {
 type tabbedKeyMap struct {
 	NextTab key.Binding
 	PrevTab key.Binding
+	Tab1    key.Binding
+	Tab2    key.Binding
+	Tab3    key.Binding
+	Tab4    key.Binding
 }
 
 func (k tabbedKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextTab, k.PrevTab}
+	return []key.Binding{k.NextTab, k.PrevTab, k.Tab1, k.Tab2}
 }
 
 func (k tabbedKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
+		{k.Tab1, k.Tab2, k.Tab3, k.Tab4},
 		{k.NextTab, k.PrevTab},
 	}
 }
@@ -52,6 +58,22 @@ func newTabbedKeyMap() tabbedKeyMap {
 		PrevTab: key.NewBinding(
 			key.WithKeys("shift+tab"),
 			key.WithHelp("shift+tab", "previous tab"),
+		),
+		Tab1: key.NewBinding(
+			key.WithKeys("1"),
+			key.WithHelp("1", "tab 1"),
+		),
+		Tab2: key.NewBinding(
+			key.WithKeys("2"),
+			key.WithHelp("2", "tab 2"),
+		),
+		Tab3: key.NewBinding(
+			key.WithKeys("3"),
+			key.WithHelp("3", "tab 3"),
+		),
+		Tab4: key.NewBinding(
+			key.WithKeys("4"),
+			key.WithHelp("4", "tab 4"),
 		),
 	}
 }
@@ -87,6 +109,24 @@ func (m tabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.PrevTab):
 			// Cycle backwards
 			m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
+			return m, nil
+		}
+
+		// Handle number key presses for direct tab access
+		if key.Matches(msg, m.keys.Tab1) && len(m.tabs) >= 1 {
+			m.activeTab = 0
+			return m, nil
+		}
+		if key.Matches(msg, m.keys.Tab2) && len(m.tabs) >= 2 {
+			m.activeTab = 1
+			return m, nil
+		}
+		if key.Matches(msg, m.keys.Tab3) && len(m.tabs) >= 3 {
+			m.activeTab = 2
+			return m, nil
+		}
+		if key.Matches(msg, m.keys.Tab4) && len(m.tabs) >= 4 {
+			m.activeTab = 3
 			return m, nil
 		}
 
@@ -174,29 +214,86 @@ func (m tabbedModel) View() string {
 		return "Loading..."
 	}
 
-	// Render tab bar with clear separator
-	var tabs []string
-	for i, name := range m.tabNames {
-		if i == m.activeTab {
-			tabs = append(tabs, lipgloss.NewStyle().
-				Bold(true).
-				Foreground(m.accentColor).
-				Padding(0, 2).
-				Render(name))
-		} else {
-			tabs = append(tabs, lipgloss.NewStyle().
-				Foreground(m.mutedColor).
-				Padding(0, 2).
-				Render(name))
-		}
+	// Render tab bar with fancy borders (from ui/model.go)
+	primaryColor := lipgloss.Color("#268bd2")
+	mutedColor := lipgloss.Color("#586e75")
+	
+	// Tab border styles
+	activeTabBorder := lipgloss.Border{
+		Top:         "─",
+		Bottom:      " ",
+		Left:        "│",
+		Right:       "│",
+		TopLeft:     "╭",
+		TopRight:    "╮",
+		BottomLeft:  "┘",
+		BottomRight: "└",
 	}
 
-	tabBarContent := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
-	tabBar := lipgloss.NewStyle().
-		Background(lipgloss.Color("#073642")).
-		Foreground(lipgloss.Color("#fdf6e3")).
-		Width(m.width).
-		Render(tabBarContent)
+	tabBorder := lipgloss.Border{
+		Top:         "─",
+		Bottom:      "─",
+		Left:        "│",
+		Right:       "│",
+		TopLeft:     "╭",
+		TopRight:    "╮",
+		BottomLeft:  "┴",
+		BottomRight: "┴",
+	}
+
+	tabStyle := lipgloss.NewStyle().
+		Border(tabBorder, true).
+		BorderForeground(mutedColor).
+		Padding(0, 1).
+		Foreground(mutedColor)
+
+	activeTabStyle := lipgloss.NewStyle().
+		Border(activeTabBorder, true).
+		BorderForeground(primaryColor).
+		Padding(0, 1).
+		Foreground(primaryColor).
+		Bold(true)
+
+	tabGap := lipgloss.NewStyle().
+		BorderTop(true).
+		BorderBottom(true).
+		BorderForeground(mutedColor)
+
+	helpIndicatorStyle := lipgloss.NewStyle().
+		Foreground(mutedColor).
+		BorderTop(true).
+		BorderForeground(mutedColor).
+		Padding(0, 1)
+
+	var tabs []string
+	for i, name := range m.tabNames {
+		style := tabStyle
+		if i == m.activeTab {
+			style = activeTabStyle
+		}
+		// Add number indicator to tab name
+		tabName := fmt.Sprintf("%d %s", i+1, name)
+		tabs = append(tabs, style.Render(tabName))
+	}
+
+	// Join tabs horizontally
+	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+
+	// Calculate space needed for help indicator
+	helpText := "? help"
+	helpWidth := lipgloss.Width(helpText) + 4 // +4 for padding
+
+	// Add gap to fill remaining space with bottom border
+	tabsWidth := lipgloss.Width(row)
+	gapWidth := max(0, m.width-tabsWidth-helpWidth)
+	gap := tabGap.Render(strings.Repeat(" ", gapWidth))
+
+	// Join tabs and gap at the bottom (so gap's bottom border aligns)
+	row = lipgloss.JoinHorizontal(lipgloss.Bottom, row, gap)
+
+	// Add help indicator at the end
+	helpIndicator := helpIndicatorStyle.Render(helpText)
+	tabBar := row + helpIndicator
 	
 	// Cache tab bar height for layout calculations
 	m.tabBarHeight = lipgloss.Height(tabBar)
