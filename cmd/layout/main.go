@@ -3,236 +3,312 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/bjartek/aether/pkg/chroma"
+	"github.com/bjartek/aether/pkg/splitview"
+	"github.com/bjartek/aether/pkg/ui"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	primaryColor = lipgloss.Color("#268bd2")
-	accentColor  = lipgloss.Color("#b58900")
-	mutedColor   = lipgloss.Color("#586e75")
-	debugColor   = lipgloss.Color("#dc322f")
-)
-
-const (
-	tableSplitPercent = 0.3
-)
-
-type model struct {
-	table              table.Model
-	detailViewport     viewport.Model
-	width              int
-	height             int
-	codeOriginal       string // Original unhighlighted code
-	codeFullscreen     string // Highlighted code for fullscreen width
-	codeDetail         string // Highlighted code for detail panel width
-	hexString          string // 256-char hex string for testing
-	fullDetailMode     bool   // Toggle between split and fullscreen detail view
+type tabbedModel struct {
+	tabs         []*splitview.SplitViewModel
+	tabNames     []string
+	activeTab    int
+	width        int
+	height       int
+	accentColor  lipgloss.Color
+	mutedColor   lipgloss.Color
+	pendingRows  []splitview.RowData
+	footer       ui.FooterModel
+	keys         tabbedKeyMap
+	tabBarHeight int
 }
 
-func initialModel() model {
-	// Read the schedule_transaction.cdc file
-	codeBytes, err := os.ReadFile("example/cadence/transactions/schedule_transaction.cdc")
-	if err != nil {
-		panic(fmt.Sprintf("Failed to read file: %v", err))
+type tabbedKeyMap struct {
+	NextTab key.Binding
+	PrevTab key.Binding
+}
+
+func (k tabbedKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.NextTab, k.PrevTab}
+}
+
+func (k tabbedKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.NextTab, k.PrevTab},
 	}
+}
 
-	// Store original code - will highlight on resize with actual widths
-	codeOriginal := string(codeBytes)
-
-	// Create table with some dummy data
-	columns := []table.Column{
-		{Title: "Name", Width: 20},
-		{Title: "Type", Width: 15},
-		{Title: "Network", Width: 15},
+func newTabbedKeyMap() tabbedKeyMap {
+	return tabbedKeyMap{
+		NextTab: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "next tab"),
+		),
+		PrevTab: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("shift+tab", "previous tab"),
+		),
 	}
+}
 
-	rows := []table.Row{
-		{"schedule_transaction", "Transaction", "testnet"},
-		{"get_balance", "Script", "mainnet"},
-		{"transfer_tokens", "Transaction", "testnet"},
-		{"create_account", "Script", "emulator"},
-		{"update_contract", "Transaction", "mainnet"},
-	}
+type loadRowsMsg struct{}
 
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(10),
+func (m tabbedModel) Init() tea.Cmd {
+	// Load rows after 1 second
+	return tea.Batch(
+		tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+			return loadRowsMsg{}
+		}),
+		m.footer.Init(),
 	)
-
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(primaryColor).
-		BorderBottom(true).
-		Bold(false)
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("#fdf6e3")).
-		Background(primaryColor).
-		Bold(false)
-	t.SetStyles(s)
-
-	// Create a 256-char hex string for testing
-	hexString := "a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f"
-
-	// Create viewport for detail panel
-	vp := viewport.New(80, 20)
-
-	return model{
-		table:          t,
-		detailViewport: vp,
-		codeOriginal:   codeOriginal,
-		hexString:      hexString,
-	}
 }
 
-func (m model) Init() tea.Cmd {
-	return nil
-}
-
-// buildViewportContent creates the full content string for the viewport
-func (m model) buildViewportContent(width int, isFullscreen bool) string {
-	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(accentColor)
-	valueStyle := lipgloss.NewStyle().Foreground(mutedColor)
-	debugStyle := lipgloss.NewStyle().Foreground(debugColor)
-
-	modeLabel := "Detail"
-	if isFullscreen {
-		modeLabel = "Fullscreen"
-	}
-	debugInfo := debugStyle.Render(fmt.Sprintf("[DEBUG] %s Width: %d, Viewport: %dx%d, Scroll: %.0f%%",
-		modeLabel,
-		width,
-		m.detailViewport.Width,
-		m.detailViewport.Height,
-		m.detailViewport.ScrollPercent()*100)) + "\n\n"
-
-	title := fieldStyle.Render("Code: schedule_transaction.cdc") + "\n\n"
-	hexLabel := fieldStyle.Render("Hex Data:") + " "
-	hexValue := valueStyle.Render(m.hexString) + "\n\n"
-
-	code := m.codeFullscreen
-	if !isFullscreen {
-		code = m.codeDetail
-	}
-	return debugInfo + title + hexLabel + hexValue + code
-}
-
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-
+func (m tabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case loadRowsMsg:
+		// Add the pending rows to the first tab
+		if len(m.pendingRows) > 0 {
+			m.tabs[0].SetRows(m.pendingRows)
+			m.pendingRows = nil
+		}
+		return m, nil
+
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case " ", "enter": // Space or Enter toggles fullscreen
-			m.fullDetailMode = !m.fullDetailMode
+		switch {
+		case key.Matches(msg, m.keys.NextTab):
+			// Cycle through tabs
+			m.activeTab = (m.activeTab + 1) % len(m.tabs)
 			return m, nil
-		case "esc": // Esc exits fullscreen
-			if m.fullDetailMode {
-				m.fullDetailMode = false
-				return m, nil
-			}
-		case "j", "down":
-			if m.fullDetailMode {
-				// In fullscreen, scroll viewport
-				m.detailViewport, cmd = m.detailViewport.Update(msg)
-			} else {
-				// In split view, navigate table
-				m.table, cmd = m.table.Update(msg)
-			}
-		case "k", "up":
-			if m.fullDetailMode {
-				// In fullscreen, scroll viewport
-				m.detailViewport, cmd = m.detailViewport.Update(msg)
-			} else {
-				// In split view, navigate table
-				m.table, cmd = m.table.Update(msg)
-			}
+		case key.Matches(msg, m.keys.PrevTab):
+			// Cycle backwards
+			m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
+			return m, nil
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.footer.SetWidth(msg.Width)
 		
-		// Generate highlighted code versions for both modes with actual widths
-		tableWidth := int(float64(m.width) * tableSplitPercent)
-		detailWidth := m.width - tableWidth
+		// Calculate available height for content
+		tabHeight := m.tabBarHeight
+		if tabHeight == 0 {
+			tabHeight = ui.TabBarHeight
+		}
 		
-		m.codeFullscreen = chroma.HighlightCadenceWithStyleAndWidth(m.codeOriginal, "solarized-dark", m.width)
-		m.codeDetail = chroma.HighlightCadenceWithStyleAndWidth(m.codeOriginal, "solarized-dark", detailWidth)
+		// Footer height based on whether help is shown
+		footerHeight := 0
+		if m.footer.ShowAll {
+			footerHeight = ui.FooterHelpHeight
+		}
+		
+		contentHeight := msg.Height - tabHeight - footerHeight
+		
+		// Create adjusted window size for tabs
+		adjustedMsg := tea.WindowSizeMsg{
+			Width:  msg.Width,
+			Height: contentHeight,
+		}
+		
+		// Forward adjusted size to all tabs
+		for i := range m.tabs {
+			m.tabs[i].Update(adjustedMsg)
+		}
 		return m, nil
 	}
 
+	// Check if this is the help key
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "?" {
+		// Toggle footer help
+		oldShowAll := m.footer.ShowAll
+		m.footer, _ = m.footer.Update(msg)
+		
+		// Adjust content height (gh-dash pattern)
+		tabHeight := m.tabBarHeight
+		if tabHeight == 0 {
+			tabHeight = ui.TabBarHeight
+		}
+		
+		var contentHeight int
+		if m.footer.ShowAll {
+			// Help shown: reduce content
+			contentHeight = m.height - tabHeight - ui.FooterHelpHeight
+		} else {
+			// Help hidden: restore content
+			contentHeight = m.height - tabHeight
+		}
+		
+		// Update tabs with new size
+		if oldShowAll != m.footer.ShowAll {
+			adjustedMsg := tea.WindowSizeMsg{Width: m.width, Height: contentHeight}
+			for i := range m.tabs {
+				m.tabs[i].Update(adjustedMsg)
+			}
+		}
+		
+		// Don't forward ? to tabs
+		return m, nil
+	}
+
+	// Forward other messages to footer
+	var footerCmd tea.Cmd
+	m.footer, footerCmd = m.footer.Update(msg)
+
+	// Forward to active tab
+	activeTab, cmd := m.tabs[m.activeTab].Update(msg)
+	m.tabs[m.activeTab] = activeTab.(*splitview.SplitViewModel)
+	
+	if footerCmd != nil {
+		return m, tea.Batch(cmd, footerCmd)
+	}
 	return m, cmd
 }
 
-func (m model) View() string {
+func (m tabbedModel) View() string {
 	if m.width == 0 {
 		return "Loading..."
 	}
 
-	// Fullscreen mode - show only detail viewport
-	if m.fullDetailMode {
-		// Set dimensions and render content fresh
-		m.detailViewport.Width = m.width
-		m.detailViewport.Height = m.height - 4
-		content := m.buildViewportContent(m.width, true)
-		wrappedContent := lipgloss.NewStyle().Width(m.width).Render(content)
-		m.detailViewport.SetContent(wrappedContent)
-
-		hint := lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Render("j/k: scroll | space/enter/esc: exit fullscreen | q: quit")
-
-		return hint + "\n\n" + m.detailViewport.View()
+	// Render tab bar with clear separator
+	var tabs []string
+	for i, name := range m.tabNames {
+		if i == m.activeTab {
+			tabs = append(tabs, lipgloss.NewStyle().
+				Bold(true).
+				Foreground(m.accentColor).
+				Padding(0, 2).
+				Render(name))
+		} else {
+			tabs = append(tabs, lipgloss.NewStyle().
+				Foreground(m.mutedColor).
+				Padding(0, 2).
+				Render(name))
+		}
 	}
 
-	// Split view mode - table on left, detail on right
-	tableWidth := int(float64(m.width) * tableSplitPercent)
-	detailWidth := m.width - tableWidth
+	tabBarContent := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	tabBar := lipgloss.NewStyle().
+		Background(lipgloss.Color("#073642")).
+		Foreground(lipgloss.Color("#fdf6e3")).
+		Width(m.width).
+		Render(tabBarContent)
+	
+	// Cache tab bar height for layout calculations
+	m.tabBarHeight = lipgloss.Height(tabBar)
+	
+	// Set keymaps for help
+	m.footer.SetTabKeyMap(m.keys)
+	m.footer.SetKeyMap(m.tabs[m.activeTab].KeyMap())
+	
+	// Render footer
+	footerView := m.footer.View()
+	
+	// Use constant for footer height to avoid calculation issues
+	footerHeight := 0
+	if footerView != "" {
+		footerHeight = ui.FooterHelpHeight
+	}
+	
+	// Get content and constrain it to available height
+	contentView := m.tabs[m.activeTab].View()
+	availableContentHeight := m.height - m.tabBarHeight - footerHeight
+	
+	// Constrain content to available height
+	if availableContentHeight > 0 {
+		contentView = lipgloss.NewStyle().
+			Height(availableContentHeight).
+			MaxHeight(availableContentHeight).
+			Render(contentView)
+	}
+	
+	// Join: tab bar always on top, content in middle, footer at bottom (only if footer has content)
+	if footerView != "" {
+		return lipgloss.JoinVertical(lipgloss.Top, tabBar, contentView, footerView)
+	}
+	return lipgloss.JoinVertical(lipgloss.Top, tabBar, contentView)
+}
 
-	// Update table dimensions
-	m.table.SetWidth(tableWidth)
-	m.table.SetHeight(m.height - 4)
+func initialModel() tea.Model {
+	// Read the schedule_transaction.cdc file
+	codeBytes, err := os.ReadFile("example/cadence/transactions/schedule_transaction.cdc")
+	if err != nil {
+		panic(fmt.Sprintf("Failed to read file: %v", err))
+	}
+	codeOriginal := chroma.HighlightCadence(string(codeBytes))
 
-	// Set viewport dimensions and render content fresh
-	m.detailViewport.Width = detailWidth
-	m.detailViewport.Height = m.height - 4
-	content := m.buildViewportContent(detailWidth, false)
-	wrappedContent := lipgloss.NewStyle().Width(detailWidth).Render(content)
-	m.detailViewport.SetContent(wrappedContent)
+	// Define colors for styling
+	primaryColor := lipgloss.Color("#268bd2")
+	accentColor := lipgloss.Color("#b58900")
+	mutedColor := lipgloss.Color("#586e75")
 
-	// Render table
-	tableView := lipgloss.NewStyle().
-		Width(tableWidth).
-		MaxHeight(m.height).
-		Render(m.table.View())
+	// Create table styles
+	tableStyles := table.DefaultStyles()
+	tableStyles.Header = tableStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(primaryColor).
+		BorderBottom(true).
+		Bold(false)
+	tableStyles.Selected = tableStyles.Selected.
+		Foreground(lipgloss.Color("#fdf6e3")).
+		Background(primaryColor).
+		Bold(false)
 
-	// Render detail panel - viewport handles its own constraints
-	detailView := m.detailViewport.View()
+	// Create a 256-char hex string for testing
+	hexString := "a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9f"
 
-	// Join horizontally
-	mainView := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		tableView,
-		detailView,
-	)
+	// Tab 1: Transactions
+	columns1 := []splitview.ColumnConfig{
+		{Name: "Name", Width: 20, SortKey: "name", FilterKey: "name"},
+		{Name: "Type", Width: 15, SortKey: "type", FilterKey: "type"},
+		{Name: "Network", Width: 15, SortKey: "network", FilterKey: "network"},
+	}
+	rows1 := []splitview.RowData{
+		splitview.NewRowData(table.Row{"schedule_transaction", "Transaction", "testnet"}).
+			WithCode(codeOriginal).
+			WithContent(fmt.Sprintf("Code: schedule_transaction.cdc\n\nHex Data: %s", hexString)),
+		splitview.NewRowData(table.Row{"transfer_tokens", "Transaction", "testnet"}).
+			WithCode(codeOriginal).
+			WithContent("Code: transfer_tokens.cdc"),
+		splitview.NewRowData(table.Row{"update_contract", "Transaction", "mainnet"}).
+			WithContent("Contract: update_contract\n\nCode not loaded."),
+	}
 
-	// Add hint at top
-	hint := lipgloss.NewStyle().
-		Foreground(mutedColor).
-		Render("j/k: navigate | space/enter: fullscreen | q: quit")
+	// Tab 2: Scripts
+	columns2 := []splitview.ColumnConfig{
+		{Name: "Script", Width: 25, SortKey: "name", FilterKey: "name"},
+		{Name: "Network", Width: 15, SortKey: "network", FilterKey: "network"},
+		{Name: "Status", Width: 10, SortKey: "status", FilterKey: "status"},
+	}
+	rows2 := []splitview.RowData{
+		splitview.NewRowData(table.Row{"get_balance", "mainnet", "active"}).
+			WithCode(codeOriginal).
+			WithContent("Script: get_balance\n\nReturns account balance."),
+		splitview.NewRowData(table.Row{"create_account", "emulator", "active"}).
+			WithCode(codeOriginal).
+			WithContent("Script: create_account"),
+		splitview.NewRowData(table.Row{"list_nfts", "testnet", "inactive"}).
+			WithContent("Script: list_nfts\n\nNo code available."),
+	}
 
-	return hint + "\n\n" + mainView
+	return tabbedModel{
+		tabs: []*splitview.SplitViewModel{
+			splitview.NewSplitView(columns1, splitview.WithTableStyles(tableStyles)),
+			splitview.NewSplitView(columns2, splitview.WithTableStyles(tableStyles), splitview.WithRows(rows2)),
+		},
+		tabNames:     []string{"Transactions", "Scripts"},
+		activeTab:    0,
+		accentColor:  accentColor,
+		mutedColor:   mutedColor,
+		pendingRows:  rows1, // Store rows to load after delay
+		footer:       ui.NewFooterModel(),
+		keys:         newTabbedKeyMap(),
+		tabBarHeight: 0, // Will be set on first View() render
+	}
 }
 
 func main() {

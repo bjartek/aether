@@ -398,8 +398,8 @@ func (m Model) View() string {
 		output = lipgloss.JoinVertical(
 			lipgloss.Left,
 			header,
-			helpBar,
 			content,
+			helpBar,  // Help at bottom
 		)
 	} else {
 		output = lipgloss.JoinVertical(
