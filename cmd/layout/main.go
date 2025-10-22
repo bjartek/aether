@@ -15,8 +15,34 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// dashboardWrapper wraps DashboardView to implement tea.Model
+type dashboardWrapper struct {
+	dashboard *ui.DashboardView
+	width     int
+	height    int
+}
+
+func (d dashboardWrapper) Init() tea.Cmd {
+	return d.dashboard.Init()
+}
+
+func (d dashboardWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle window size messages
+	if windowMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		d.width = windowMsg.Width
+		d.height = windowMsg.Height
+	}
+	
+	cmd := d.dashboard.Update(msg, d.width, d.height)
+	return d, cmd
+}
+
+func (d dashboardWrapper) View() string {
+	return d.dashboard.View()
+}
+
 type tabbedModel struct {
-	tabs         []*splitview.SplitViewModel
+	tabs         []tea.Model
 	tabNames     []string
 	activeTab    int
 	width        int
@@ -95,7 +121,10 @@ func (m tabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loadRowsMsg:
 		// Add the pending rows to the first tab
 		if len(m.pendingRows) > 0 {
-			m.tabs[0].SetRows(m.pendingRows)
+			// Only set rows if the tab is a SplitViewModel
+			if splitView, ok := m.tabs[0].(*splitview.SplitViewModel); ok {
+				splitView.SetRows(m.pendingRows)
+			}
 			m.pendingRows = nil
 		}
 		return m, nil
@@ -157,7 +186,7 @@ func (m tabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		// Forward adjusted size to all tabs
 		for i := range m.tabs {
-			m.tabs[i].Update(adjustedMsg)
+			m.tabs[i], _ = m.tabs[i].Update(adjustedMsg)
 		}
 		return m, nil
 	}
@@ -187,7 +216,7 @@ func (m tabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if oldShowAll != m.footer.ShowAll {
 			adjustedMsg := tea.WindowSizeMsg{Width: m.width, Height: contentHeight}
 			for i := range m.tabs {
-				m.tabs[i].Update(adjustedMsg)
+				m.tabs[i], _ = m.tabs[i].Update(adjustedMsg)
 			}
 		}
 		
@@ -200,8 +229,8 @@ func (m tabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.footer, footerCmd = m.footer.Update(msg)
 
 	// Forward to active tab
-	activeTab, cmd := m.tabs[m.activeTab].Update(msg)
-	m.tabs[m.activeTab] = activeTab.(*splitview.SplitViewModel)
+	var cmd tea.Cmd
+	m.tabs[m.activeTab], cmd = m.tabs[m.activeTab].Update(msg)
 	
 	if footerCmd != nil {
 		return m, tea.Batch(cmd, footerCmd)
@@ -300,7 +329,10 @@ func (m tabbedModel) View() string {
 	
 	// Set keymaps for help
 	m.footer.SetTabKeyMap(m.keys)
-	m.footer.SetKeyMap(m.tabs[m.activeTab].KeyMap())
+	// Only set keymap if the tab supports it (e.g., SplitViewModel)
+	if splitView, ok := m.tabs[m.activeTab].(*splitview.SplitViewModel); ok {
+		m.footer.SetKeyMap(splitView.KeyMap())
+	}
 	
 	// Render footer
 	footerView := m.footer.View()
@@ -393,11 +425,12 @@ func initialModel() tea.Model {
 	}
 
 	return tabbedModel{
-		tabs: []*splitview.SplitViewModel{
+		tabs: []tea.Model{
 			splitview.NewSplitView(columns1, splitview.WithTableStyles(tableStyles)),
 			splitview.NewSplitView(columns2, splitview.WithTableStyles(tableStyles), splitview.WithRows(rows2)),
+			dashboardWrapper{dashboard: ui.NewDashboardView()},
 		},
-		tabNames:     []string{"Transactions", "Scripts"},
+		tabNames:     []string{"Transactions", "Scripts", "Dashboard"},
 		activeTab:    0,
 		accentColor:  accentColor,
 		mutedColor:   mutedColor,
