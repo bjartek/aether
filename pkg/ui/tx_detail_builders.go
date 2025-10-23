@@ -14,7 +14,7 @@ import (
 // It mirrors the formatting and styling used in renderTransactionDetailText, up to (and including)
 // the "Script:" header, but does NOT append the script body. Callers should append the code
 // returned by buildTransactionDetailCode.
-func buildTransactionDetailContent(tx TransactionData, registry *aether.AccountRegistry, showEventFields bool, showRaw bool) string {
+func buildTransactionDetailContent(tx aether.TransactionData, registry *aether.AccountRegistry, showEventFields bool, showRaw bool) string {
 	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
 	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
 
@@ -211,7 +211,7 @@ func buildTransactionDetailContent(tx TransactionData, registry *aether.AccountR
 }
 
 // buildTransactionDetailCode returns the script body (highlighted when available) with trailing newline.
-func buildTransactionDetailCode(tx TransactionData) string {
+func buildTransactionDetailCode(tx aether.TransactionData) string {
 	if tx.Script == "" {
 		return ""
 	}

@@ -5,70 +5,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/bjartek/aether/pkg/aether"
-	"github.com/bjartek/aether/pkg/chroma"
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
-	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/onflow/flow-evm-gateway/models"
-	"github.com/onflow/flow-go/fvm/evm/events"
+
 )
 
 // ArgumentData holds argument name and value for display
-type ArgumentData struct {
-	Name  string
-	Value interface{} // Keep as interface{} for proper formatting
-}
-
-// EVMTransactionData wraps all data returned from decoding an EVM transaction event
-type EVMTransactionData struct {
-	Transaction models.Transaction
-	Receipt     *models.Receipt
-	Payload     *events.TransactionEventPayload
-}
-
-// TransactionType represents the type of transaction
-type TransactionType string
-
-const (
-	TransactionTypeFlow  TransactionType = "flow"  // Only Flow/Cadence events
-	TransactionTypeEVM   TransactionType = "evm"   // Only EVM events
-	TransactionTypeMixed TransactionType = "mixed" // Both Flow and EVM events
-)
-
-// TransactionData holds transaction information for display
-type TransactionData struct {
-	ID                string
-	BlockID           string
-	BlockHeight       uint64
-	Authorizers       []string // Can have multiple authorizers
-	Status            string
-	Proposer          string
-	Payer             string
-	GasLimit          uint64
-	Script            string // Raw script code
-	HighlightedScript string // Syntax-highlighted script with ANSI colors
-	Arguments         []ArgumentData
-	Events            []overflow.OverflowEvent
-	EVMTransactions   []EVMTransactionData // Decoded EVM transactions
-	Type              TransactionType      // Transaction type (flow/evm/mixed)
-	Error             string
-	Timestamp         time.Time
-	Index             int
-}
-
-// TransactionMsg is sent when a new transaction is received
-type TransactionMsg struct {
-	Transaction TransactionData
-}
 
 // TransactionsKeyMap defines keybindings for the transactions view
 type TransactionsKeyMap struct {
@@ -134,8 +84,8 @@ type TransactionsView struct {
 	saveInput           textinput.Model // Input for save filename
 	keys                TransactionsKeyMap
 	ready               bool
-	transactions        []TransactionData
-	filteredTxs         []TransactionData
+	transactions        []aether.TransactionData
+	filteredTxs         []aether.TransactionData
 	maxTxs              int
 	width               int
 	height              int
@@ -243,8 +193,8 @@ func NewTransactionsViewWithConfig(cfg *config.Config) *TransactionsView {
 		saveInput:           saveInput,
 		keys:                DefaultTransactionsKeyMap(),
 		ready:               false,
-		transactions:        make([]TransactionData, 0, maxTransactions),
-		filteredTxs:         make([]TransactionData, 0),
+		transactions:        make([]aether.TransactionData, 0, maxTransactions),
+		filteredTxs:         make([]aether.TransactionData, 0),
 		maxTxs:              maxTransactions,
 		tableWidthPercent:   tableWidthPercent,
 		detailWidthPercent:  detailWidthPercent,
@@ -269,121 +219,9 @@ func truncateHex(s string, startLen, endLen int) string {
 	return s[:startLen] + "..." + s[len(s)-endLen:]
 }
 
-// AddTransaction adds a new transaction from an OverflowTransaction
-func (tv *TransactionsView) AddTransaction(blockHeight uint64, blockID string, ot overflow.OverflowTransaction, registry *aether.AccountRegistry) {
-	// Store registry for use in rendering
-	if registry != nil {
-		tv.accountRegistry = registry
-	}
-
-	// Extract all authorizers
-	authorizers := ot.Authorizers
-	if len(authorizers) == 0 {
-		authorizers = []string{"N/A"}
-	}
-
-	// Extract proposer and payer
-	proposer := "N/A"
-	if ot.ProposalKey.Address.String() != "" {
-		proposer = fmt.Sprintf("0x%s", ot.ProposalKey.Address.Hex())
-	}
-
-	payer := "N/A"
-	if ot.Payer != "" {
-		payer = ot.Payer
-	}
-	// Determine status
-	status := "Unknown"
-	if ot.Error != nil {
-		status = "Failed"
-	} else {
-		status = ot.Status
-	}
-
-	// Store full script - user can scroll if needed
-	script := string(ot.Script)
-	highlightedScript := chroma.HighlightCadence(script)
-
-	// Format arguments as structured data
-	args := make([]ArgumentData, 0, len(ot.Arguments))
-	for i, arg := range ot.Arguments {
-		// Use the key field as the argument name, fallback to index if not available
-		name := arg.Key
-		if name == "" {
-			name = fmt.Sprintf("argument%d", i)
-		}
-		argData := ArgumentData{
-			Name:  name,
-			Value: arg.Value, // Keep as interface{} for proper formatting
-		}
-		args = append(args, argData)
-	}
-
-	// Create error message
-	errMsg := ""
-	if ot.Error != nil {
-		errMsg = ot.Error.Error()
-	}
-
-	// Store events directly
-	events := ot.Events
-
-	// Detect and decode EVM transactions from events
-	evmTransactions := make([]EVMTransactionData, 0)
-	hasEVMEvents := false
-	hasNonEVMEvents := false
-
-	for _, event := range events {
-		// Check if this is an EVM.TransactionExecuted event
-		if strings.Contains(event.Name, "EVM.TransactionExecuted") {
-			hasEVMEvents = true
-			tx, receipt, payload, err := models.DecodeTransactionEvent(event.RawEvent)
-			if err != nil {
-				// Skip events that fail to decode
-				continue
-			}
-			evmTx := EVMTransactionData{
-				Transaction: tx,
-				Receipt:     receipt,
-				Payload:     payload,
-			}
-			evmTransactions = append(evmTransactions, evmTx)
-		} else {
-			hasNonEVMEvents = true
-		}
-	}
-
-	// Determine transaction type
-	txType := TransactionTypeFlow // Default to flow
-	if hasEVMEvents && !hasNonEVMEvents {
-		txType = TransactionTypeEVM
-	} else if hasEVMEvents && hasNonEVMEvents {
-		txType = TransactionTypeMixed
-	}
-
-	txData := TransactionData{
-		ID:                ot.Id,
-		BlockID:           blockID,
-		BlockHeight:       blockHeight,
-		Authorizers:       authorizers,
-		Status:            status,
-		Proposer:          proposer,
-		Payer:             payer,
-		GasLimit:          ot.GasLimit,
-		Script:            script,
-		HighlightedScript: highlightedScript,
-		Arguments:         args,
-		Events:            events,
-		EVMTransactions:   evmTransactions,
-		Type:              txType,
-		Error:             errMsg,
-		Timestamp:         time.Now(),
-		Index:             ot.TransactionIndex,
-	}
-
+// AddTransaction adds a new transaction to the view
+func (tv *TransactionsView) AddTransaction(txData aether.TransactionData) {
 	tv.transactions = append(tv.transactions, txData)
-
-	// No pre-rendering - render fresh on demand
 
 	// Keep only the last maxTxs transactions
 	if len(tv.transactions) > tv.maxTxs {
@@ -421,7 +259,7 @@ func (tv *TransactionsView) applyFilter() {
 		tv.filteredTxs = tv.transactions
 	} else {
 		// Filter by authorizer friendly name
-		tv.filteredTxs = make([]TransactionData, 0)
+		tv.filteredTxs = make([]aether.TransactionData, 0)
 		filterLower := strings.ToLower(tv.filterText)
 
 		for _, tx := range tv.transactions {
@@ -685,7 +523,7 @@ func (tv *TransactionsView) Update(msg tea.Msg, width, height int) tea.Cmd {
 }
 
 // saveTransaction saves a transaction to .cdc and .json files
-func (tv *TransactionsView) saveTransaction(filename string, tx TransactionData) error {
+func (tv *TransactionsView) saveTransaction(filename string, tx aether.TransactionData) error {
 	// Always use transactions directory, create if needed
 	dir := "transactions"
 
@@ -845,7 +683,7 @@ func (tv *TransactionsView) View() string {
 
 // renderTransactionDetailText renders transaction details as plain text (for viewport)
 // Delegates to helpers to build content and code sections to enable splitview migration.
-func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) string {
+func (tv *TransactionsView) renderTransactionDetailText(tx aether.TransactionData) string {
     content := buildTransactionDetailContent(tx, tv.accountRegistry, tv.showEventFields, tv.showRawAddresses)
     code := buildTransactionDetailCode(tx)
     return content + code

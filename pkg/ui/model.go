@@ -15,6 +15,9 @@ import (
 	zone "github.com/lrstanley/bubblezone"
 )
 
+// Feature toggle: enable splitview-based TransactionsViewV2
+const useTransactionsV2 = true
+
 // Tab represents a single tab in the application.
 type Tab struct {
 	Name    string
@@ -23,25 +26,27 @@ type Tab struct {
 
 // Model represents the application state.
 type Model struct {
-	tabs                []Tab
-	activeTab           int
-	dashboardTabIndex   int
-	transactionsTabIndex int
-	eventsTabIndex      int
-	runnerTabIndex      int
-	logsTabIndex        int
-	dashboardView       *DashboardView
-	transactionsView    *TransactionsView
-	eventsView          *EventsView
-	runnerView          *RunnerView
-	logsView            *LogsView
-	help                help.Model
-	keys                KeyMap
-	showHelp            bool
-	width               int
-	height              int
-	ready               bool
-	zoneID              string // Zone ID prefix for mouse tracking
+	tabs                  []Tab
+	activeTab             int
+	dashboardTabIndex     int
+	transactionsTabIndex  int
+	eventsTabIndex        int
+	runnerTabIndex        int
+	logsTabIndex          int
+	dashboardView         *DashboardView
+	transactionsView      *TransactionsView
+	transactionsViewV2    *TransactionsViewV2
+	eventsView            *EventsView
+	runnerView            *RunnerView
+	logsView              *LogsView
+	help                  help.Model
+	keys                  KeyMap
+	showHelp              bool
+	width                 int
+	height                int
+	ready                 bool
+	zoneID                string // Zone ID prefix for mouse tracking
+	transactionsV2Enabled bool
 }
 
 // NewModel creates a new application model with default tabs.
@@ -52,21 +57,21 @@ func NewModel() Model {
 // NewModelWithConfig creates a new application model with configuration.
 func NewModelWithConfig(cfg *config.Config) Model {
 	tabs := []Tab{
-		{Name: "Dashboard", Content: ""},      // Content will be rendered by DashboardView
-		{Name: "Transactions", Content: ""},   // Content will be rendered by TransactionsView
-		{Name: "Events", Content: ""},         // Content will be rendered by EventsView
-		{Name: "Runner", Content: ""},         // Content will be rendered by RunnerView
-		{Name: "Logs", Content: ""},           // Content will be rendered by LogsView
+		{Name: "Dashboard", Content: ""},    // Content will be rendered by DashboardView
+		{Name: "Transactions", Content: ""}, // Content will be rendered by TransactionsView
+		{Name: "Events", Content: ""},       // Content will be rendered by EventsView
+		{Name: "Runner", Content: ""},       // Content will be rendered by RunnerView
+		{Name: "Logs", Content: ""},         // Content will be rendered by LogsView
 	}
 
 	// Configure help bubble with better visibility
 	helpModel := help.New()
-	helpModel.Styles.ShortKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7FF")) // Bright cyan for keys
-	helpModel.Styles.ShortDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")) // White for descriptions
+	helpModel.Styles.ShortKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7FF"))       // Bright cyan for keys
+	helpModel.Styles.ShortDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))      // White for descriptions
 	helpModel.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")) // Gray for separators
-	helpModel.Styles.FullKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7FF")) // Bright cyan for keys
-	helpModel.Styles.FullDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")) // White for descriptions
-	helpModel.Styles.FullSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")) // Gray for separators
+	helpModel.Styles.FullKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7FF"))        // Bright cyan for keys
+	helpModel.Styles.FullDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))       // White for descriptions
+	helpModel.Styles.FullSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))  // Gray for separators
 
 	// Use config if provided, otherwise use defaults
 	var activeTab int
@@ -86,22 +91,24 @@ func NewModelWithConfig(cfg *config.Config) Model {
 	}
 
 	return Model{
-		tabs:                tabs,
-		activeTab:           activeTab,
-		keys:                DefaultKeyMap(),
-		help:                helpModel,
-		showHelp:            false,
-		dashboardView:       NewDashboardView(),
-		transactionsView:    NewTransactionsViewWithConfig(cfg),
-		eventsView:          NewEventsViewWithConfig(cfg),
-		runnerView:          NewRunnerViewWithConfig(cfg),
-		logsView:            NewLogsViewWithConfig(cfg),
-		dashboardTabIndex:   0, // Index of the Dashboard tab
-		transactionsTabIndex: 1, // Index of the Transactions tab
-		eventsTabIndex:      2, // Index of the Events tab
-		runnerTabIndex:      3, // Index of the Runner tab
-		logsTabIndex:        4, // Index of the Logs tab
-		zoneID:              zone.NewPrefix(), // Initialize zone ID for mouse tracking
+		tabs:                  tabs,
+		activeTab:             activeTab,
+		keys:                  DefaultKeyMap(),
+		help:                  helpModel,
+		showHelp:              false,
+		dashboardView:         NewDashboardView(),
+		transactionsView:      NewTransactionsViewWithConfig(cfg),
+		transactionsViewV2:    NewTransactionsViewV2WithConfig(cfg),
+		eventsView:            NewEventsViewWithConfig(cfg),
+		runnerView:            NewRunnerViewWithConfig(cfg),
+		logsView:              NewLogsViewWithConfig(cfg),
+		dashboardTabIndex:     0,                // Index of the Dashboard tab
+		transactionsTabIndex:  1,                // Index of the Transactions tab
+		eventsTabIndex:        2,                // Index of the Events tab
+		runnerTabIndex:        3,                // Index of the Runner tab
+		logsTabIndex:          4,                // Index of the Logs tab
+		zoneID:                zone.NewPrefix(), // Initialize zone ID for mouse tracking
+		transactionsV2Enabled: useTransactionsV2,
 	}
 }
 
@@ -111,8 +118,14 @@ func (m Model) Init() tea.Cmd {
 	if m.dashboardView != nil {
 		cmds = append(cmds, m.dashboardView.Init())
 	}
-	if m.transactionsView != nil {
-		cmds = append(cmds, m.transactionsView.Init())
+	if m.transactionsV2Enabled {
+		if m.transactionsViewV2 != nil {
+			cmds = append(cmds, m.transactionsViewV2.Init())
+		}
+	} else {
+		if m.transactionsView != nil {
+			cmds = append(cmds, m.transactionsView.Init())
+		}
 	}
 	if m.eventsView != nil {
 		cmds = append(cmds, m.eventsView.Init())
@@ -154,31 +167,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case aether.BlockTransactionMsg:
 		// Forward transaction messages to the transactions view
-		if m.transactionsView != nil {
-			m.transactionsView.AddTransaction(
-				msg.BlockHeight,
-				msg.BlockID,
-				msg.Transaction,
-				msg.AccountRegistry,
-			)
+		if m.transactionsV2Enabled {
+			if m.transactionsViewV2 != nil {
+				m.transactionsViewV2.AddTransaction(msg.TransactionData)
+			}
+		} else {
+			if m.transactionsView != nil {
+				m.transactionsView.AddTransaction(msg.TransactionData)
+			}
 		}
-		
+
 		// Forward events from transaction to events view
-		if m.eventsView != nil && len(msg.Transaction.Events) > 0 {
-			for eventIndex, event := range msg.Transaction.Events {
+		if m.eventsView != nil && len(msg.TransactionData.Events) > 0 {
+			for eventIndex, event := range msg.TransactionData.Events {
 				m.eventsView.AddEvent(
-					msg.BlockHeight,
-					msg.BlockID,
-					msg.Transaction.Id,
-					msg.Transaction.TransactionIndex,
+					msg.TransactionData.BlockHeight,
+					msg.TransactionData.BlockID,
+					msg.TransactionData.ID,
+					msg.TransactionData.Index,
 					event,
 					eventIndex,
-					msg.AccountRegistry,
+					nil, // AccountRegistry is already set in eventsView via SetAccountRegistry
 				)
 			}
 		}
 		return m, nil
-	
+
 	case logs.LogLineMsg:
 		// Always forward log messages to the logs view, regardless of active tab
 		if m.logsView != nil {
@@ -210,9 +224,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.dashboardView.Update(msg, m.width-4, contentHeight-2)
 			cmds = append(cmds, cmd)
 		}
-		if m.transactionsView != nil {
-			cmd = m.transactionsView.Update(msg, m.width-4, contentHeight-2)
-			cmds = append(cmds, cmd)
+		if m.transactionsV2Enabled {
+			if m.transactionsViewV2 != nil {
+				// Create adjusted message with content height (matching cmd/layout pattern)
+				adjustedMsg := tea.WindowSizeMsg{
+					Width:  m.width,
+					Height: contentHeight,
+				}
+				_, cmd = m.transactionsViewV2.Update(adjustedMsg)
+				cmds = append(cmds, cmd)
+			}
+		} else {
+			if m.transactionsView != nil {
+				cmd = m.transactionsView.Update(msg, m.width-4, contentHeight-2)
+				cmds = append(cmds, cmd)
+			}
 		}
 		if m.eventsView != nil {
 			cmd = m.eventsView.Update(msg, m.width-4, contentHeight-2)
@@ -246,7 +272,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Check if we're in a text input mode where we should skip global keybindings
 		inTextInput := m.isInTextInputMode()
-		
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			if m.logsView != nil {
@@ -264,15 +290,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				helpBarHeight = lipgloss.Height(m.renderHelpBar())
 			}
 			contentHeight := m.height - headerHeight - helpBarHeight
-			
+
 			// Update all views with new dimensions
 			if m.dashboardView != nil {
 				cmd = m.dashboardView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
 				cmds = append(cmds, cmd)
 			}
-			if m.transactionsView != nil {
-				cmd = m.transactionsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
-				cmds = append(cmds, cmd)
+			if m.transactionsV2Enabled {
+				if m.transactionsViewV2 != nil {
+					adjustedMsg := tea.WindowSizeMsg{
+						Width:  m.width,
+						Height: contentHeight,
+					}
+					_, cmd = m.transactionsViewV2.Update(adjustedMsg)
+					cmds = append(cmds, cmd)
+				}
+			} else {
+				if m.transactionsView != nil {
+					cmd = m.transactionsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
+					cmds = append(cmds, cmd)
+				}
 			}
 			if m.eventsView != nil {
 				cmd = m.eventsView.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height}, m.width-4, contentHeight-2)
@@ -297,7 +334,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !inTextInput {
 				m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
 			}
-		
+
 		// Number keys for direct tab navigation (only when not in text input)
 		default:
 			if !inTextInput {
@@ -335,9 +372,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.activeTab == m.dashboardTabIndex && m.dashboardView != nil {
 		cmd = m.dashboardView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
-	} else if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
-		cmd = m.transactionsView.Update(msg, m.width-4, contentHeight-2)
-		cmds = append(cmds, cmd)
+	} else if m.activeTab == m.transactionsTabIndex {
+		if m.transactionsV2Enabled {
+			if m.transactionsViewV2 != nil {
+				_, cmd = m.transactionsViewV2.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+		} else if m.transactionsView != nil {
+			cmd = m.transactionsView.Update(msg, m.width-4, contentHeight-2)
+			cmds = append(cmds, cmd)
+		}
 	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
 		cmd = m.eventsView.Update(msg, m.width-4, contentHeight-2)
 		cmds = append(cmds, cmd)
@@ -356,7 +400,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			validCmds = append(validCmds, c)
 		}
 	}
-	
+
 	if len(validCmds) == 0 {
 		return m, nil
 	}
@@ -399,7 +443,7 @@ func (m Model) View() string {
 			lipgloss.Left,
 			header,
 			content,
-			helpBar,  // Help at bottom
+			helpBar, // Help at bottom
 		)
 	} else {
 		output = lipgloss.JoinVertical(
@@ -423,7 +467,7 @@ func (m Model) renderHeader() string {
 		}
 		// Add number indicator to tab name
 		tabName := fmt.Sprintf("%d %s", i+1, tab.Name)
-		
+
 		// Mark each tab with a zone for mouse tracking
 		tabID := fmt.Sprintf("%stab-%d", m.zoneID, i)
 		tabs = append(tabs, zone.Mark(tabID, style.Render(tabName)))
@@ -431,19 +475,19 @@ func (m Model) renderHeader() string {
 
 	// Join tabs horizontally
 	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
-	
+
 	// Calculate space needed for help indicator
 	helpText := "? help"
 	helpWidth := lipgloss.Width(helpText) + 4 // +4 for padding
-	
+
 	// Add gap to fill remaining space with bottom border
 	tabsWidth := lipgloss.Width(row)
 	gapWidth := max(0, m.width-tabsWidth-helpWidth)
 	gap := tabGap.Render(strings.Repeat(" ", gapWidth))
-	
+
 	// Join tabs and gap at the bottom (so gap's bottom border aligns)
 	row = lipgloss.JoinHorizontal(lipgloss.Bottom, row, gap)
-	
+
 	// Add help indicator at the end
 	helpIndicator := helpIndicatorStyle.Render(helpText)
 	header := row + helpIndicator
@@ -456,13 +500,13 @@ func (m Model) renderHelpBar() string {
 	if !m.showHelp {
 		return ""
 	}
-	
+
 	// Get the appropriate KeyMap based on active tab
 	keyMap := m.getActiveKeyMap()
-	
+
 	// Use the help bubble to render
 	helpView := m.help.View(keyMap)
-	
+
 	return lipgloss.NewStyle().
 		Padding(0, 2, 1, 2).
 		Width(m.width).
@@ -472,13 +516,19 @@ func (m Model) renderHelpBar() string {
 // renderContent renders the main content area.
 func (m Model) renderContent(height int) string {
 	var viewContent string
-	
+
 	// Render dashboard tab
 	if m.activeTab == m.dashboardTabIndex && m.dashboardView != nil {
 		viewContent = m.dashboardView.View()
-	} else if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
+	} else if m.activeTab == m.transactionsTabIndex {
 		// Render transactions tab
-		viewContent = m.transactionsView.View()
+		if m.transactionsV2Enabled {
+			if m.transactionsViewV2 != nil {
+				viewContent = m.transactionsViewV2.View()
+			}
+		} else if m.transactionsView != nil {
+			viewContent = m.transactionsView.View()
+		}
 	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
 		// Render events tab
 		viewContent = m.eventsView.View()
@@ -498,23 +548,26 @@ func (m Model) renderContent(height int) string {
 		// Otherwise render static content
 		viewContent = m.tabs[m.activeTab].Content
 	}
-	
+
 	return contentStyle.
 		Width(m.width - 2).
 		Height(height).
 		Render(viewContent)
 }
 
-
 // getActiveKeyMap returns the combined KeyMap for the current view.
 func (m Model) getActiveKeyMap() help.KeyMap {
 	// Start with global keys
 	var keys CombinedKeyMap
 	keys.Global = m.keys
-	
+
 	// Add view-specific keys based on active tab
-	if m.activeTab == m.transactionsTabIndex && m.transactionsView != nil {
-		keys.Transactions = &m.transactionsView.keys
+	if m.activeTab == m.transactionsTabIndex {
+		if m.transactionsV2Enabled && m.transactionsViewV2 != nil {
+			keys.Transactions = &m.transactionsViewV2.keys
+		} else if m.transactionsView != nil {
+			keys.Transactions = &m.transactionsView.keys
+		}
 	} else if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
 		keys.Events = &m.eventsView.keys
 	} else if m.activeTab == m.runnerTabIndex && m.runnerView != nil {
@@ -522,7 +575,7 @@ func (m Model) getActiveKeyMap() help.KeyMap {
 	} else if m.activeTab == m.logsTabIndex && m.logsView != nil {
 		keys.Logs = &m.logsView.keys
 	}
-	
+
 	return keys
 }
 
@@ -538,7 +591,7 @@ type CombinedKeyMap struct {
 // ShortHelp returns keybindings to be shown in the mini help view.
 func (k CombinedKeyMap) ShortHelp() []key.Binding {
 	bindings := k.Global.ShortHelp()
-	
+
 	if k.Transactions != nil {
 		bindings = append(bindings, k.Transactions.Filter, k.Transactions.ToggleFullDetail, k.Transactions.Save)
 	} else if k.Events != nil {
@@ -548,14 +601,14 @@ func (k CombinedKeyMap) ShortHelp() []key.Binding {
 	} else if k.Logs != nil {
 		bindings = append(bindings, k.Logs.Filter)
 	}
-	
+
 	return bindings
 }
 
 // FullHelp returns keybindings for the expanded help view.
 func (k CombinedKeyMap) FullHelp() [][]key.Binding {
 	rows := k.Global.FullHelp()
-	
+
 	if k.Transactions != nil {
 		rows = append(rows, []key.Binding{
 			k.Transactions.LineUp, k.Transactions.LineDown,
@@ -591,7 +644,7 @@ func (k CombinedKeyMap) FullHelp() [][]key.Binding {
 			k.Logs.Filter, k.Logs.PageDown, k.Logs.PageUp,
 		})
 	}
-	
+
 	return rows
 }
 
@@ -605,7 +658,7 @@ func (m Model) isInTextInputMode() bool {
 			return true
 		}
 	}
-	
+
 	// Check events view filter mode
 	if m.activeTab == m.eventsTabIndex && m.eventsView != nil {
 		inFilter := m.eventsView.filterMode
@@ -613,7 +666,7 @@ func (m Model) isInTextInputMode() bool {
 			return true
 		}
 	}
-	
+
 	// Check runner view editing/saving mode
 	if m.activeTab == m.runnerTabIndex && m.runnerView != nil {
 		inEdit := m.runnerView.editingField
@@ -622,13 +675,13 @@ func (m Model) isInTextInputMode() bool {
 			return true
 		}
 	}
-	
+
 	// Check logs view filter mode
 	if m.activeTab == m.logsTabIndex && m.logsView != nil {
 		if m.logsView.filterMode {
 			return true
 		}
 	}
-	
+
 	return false
 }

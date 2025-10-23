@@ -151,9 +151,14 @@ func main() {
 	// Initialize global zone manager for mouse support
 	zone.NewGlobal()
 
+
+	//this is the old way
+//	model :=	ui.NewModelWithConfig(cfg)
+	model :=	ui.NewTestModelWithConfig(cfg)
+
 	// Now create the Bubble Tea program with config
 	p := tea.NewProgram(
-		ui.NewModelWithConfig(cfg),
+		model,
 		tea.WithAltScreen(),       // Use alternate screen buffer
 		tea.WithMouseCellMotion(), // Enable mouse support
 	)

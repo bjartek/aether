@@ -6,13 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/bjartek/aether/pkg/chroma"
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/overflow/v2"
 	"github.com/bjartek/underflow"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/enescakir/emoji"
+	"github.com/onflow/flow-evm-gateway/models"
+	"github.com/onflow/flow-go/fvm/evm/events"
 	"github.com/rs/zerolog"
 )
 
@@ -27,10 +31,54 @@ type Aether struct {
 
 // BlockTransactionMsg is sent when a transaction is processed
 type BlockTransactionMsg struct {
-	BlockHeight     uint64
-	BlockID         string
-	Transaction     overflow.OverflowTransaction
-	AccountRegistry *AccountRegistry
+	TransactionData TransactionData
+}
+
+type ArgumentData struct {
+	Name  string
+	Value interface{} // Keep as interface{} for proper formatting
+}
+
+// EVMTransactionData wraps all data returned from decoding an EVM transaction event
+type EVMTransactionData struct {
+	Transaction models.Transaction
+	Receipt     *models.Receipt
+	Payload     *events.TransactionEventPayload
+}
+
+// TransactionType represents the type of transaction
+type TransactionType string
+
+const (
+	TransactionTypeFlow  TransactionType = "flow"  // Only Flow/Cadence events
+	TransactionTypeEVM   TransactionType = "evm"   // Only EVM events
+	TransactionTypeMixed TransactionType = "mixed" // Both Flow and EVM events
+)
+
+// TransactionData holds transaction information for display
+type TransactionData struct {
+	ID                string
+	BlockID           string
+	BlockHeight       uint64
+	Authorizers       []string // Can have multiple authorizers
+	Status            string
+	Proposer          string
+	Payer             string
+	GasLimit          uint64
+	Script            string // Raw script code
+	HighlightedScript string // Syntax-highlighted script with ANSI colors
+	Arguments         []ArgumentData
+	Events            []overflow.OverflowEvent
+	EVMTransactions   []EVMTransactionData // Decoded EVM transactions
+	Type              TransactionType      // Transaction type (flow/evm/mixed)
+	Error             string
+	Timestamp         time.Time
+	Index             int
+}
+
+// TransactionMsg is sent when a new transaction is received
+type TransactionMsg struct {
+	Transaction TransactionData
 }
 
 // OverflowReadyMsg is sent when overflow is initialized and ready
@@ -192,12 +240,115 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 
 				// Send transactions directly to UI if there are any
 				if len(br.Transactions) > 0 && teaProgram != nil {
-					for _, tx := range br.Transactions {
+					for _, ot := range br.Transactions {
+
+						// Extract all authorizers
+						authorizers := ot.Authorizers
+						if len(authorizers) == 0 {
+							authorizers = []string{"N/A"}
+						}
+
+						// Extract proposer and payer
+						proposer := "N/A"
+						if ot.ProposalKey.Address.String() != "" {
+							proposer = fmt.Sprintf("0x%s", ot.ProposalKey.Address.Hex())
+						}
+
+						payer := "N/A"
+						if ot.Payer != "" {
+							payer = ot.Payer
+						}
+						// Determine status
+						status := "Unknown"
+						if ot.Error != nil {
+							status = "Failed"
+						} else {
+							status = ot.Status
+						}
+
+						// Store full script - user can scroll if needed
+						script := string(ot.Script)
+						highlightedScript := chroma.HighlightCadence(script)
+
+						// Format arguments as structured data
+						args := make([]ArgumentData, 0, len(ot.Arguments))
+						for i, arg := range ot.Arguments {
+							// Use the key field as the argument name, fallback to index if not available
+							name := arg.Key
+							if name == "" {
+								name = fmt.Sprintf("argument%d", i)
+							}
+							argData := ArgumentData{
+								Name:  name,
+								Value: arg.Value, // Keep as interface{} for proper formatting
+							}
+							args = append(args, argData)
+						}
+
+						// Create error message
+						errMsg := ""
+						if ot.Error != nil {
+							errMsg = ot.Error.Error()
+						}
+
+						// Store events directly
+						events := ot.Events
+
+						// Detect and decode EVM transactions from events
+						evmTransactions := make([]EVMTransactionData, 0)
+						hasEVMEvents := false
+						hasNonEVMEvents := false
+
+						for _, event := range events {
+							// Check if this is an EVM.TransactionExecuted event
+							if strings.Contains(event.Name, "EVM.TransactionExecuted") {
+								hasEVMEvents = true
+								tx, receipt, payload, err := models.DecodeTransactionEvent(event.RawEvent)
+								if err != nil {
+									// Skip events that fail to decode
+									continue
+								}
+								evmTx := EVMTransactionData{
+									Transaction: tx,
+									Receipt:     receipt,
+									Payload:     payload,
+								}
+								evmTransactions = append(evmTransactions, evmTx)
+							} else {
+								hasNonEVMEvents = true
+							}
+						}
+
+						// Determine transaction type
+						txType := TransactionTypeFlow // Default to flow
+						if hasEVMEvents && !hasNonEVMEvents {
+							txType = TransactionTypeEVM
+						} else if hasEVMEvents && hasNonEVMEvents {
+							txType = TransactionTypeMixed
+						}
+
+						txData := TransactionData{
+							ID:                ot.Id,
+							BlockID:           br.Block.ID.String(),
+							BlockHeight:       br.Block.Height,
+							Authorizers:       authorizers,
+							Status:            status,
+							Proposer:          proposer,
+							Payer:             payer,
+							GasLimit:          ot.GasLimit,
+							Script:            script,
+							HighlightedScript: highlightedScript,
+							Arguments:         args,
+							Events:            events,
+							EVMTransactions:   evmTransactions,
+							Type:              txType,
+							Error:             errMsg,
+							Timestamp:         time.Now(),
+							Index:             ot.TransactionIndex,
+						}
+
 						teaProgram.Send(BlockTransactionMsg{
-							BlockHeight:     br.Block.Height,
-							BlockID:         br.Block.ID.String(),
-							Transaction:     tx,
-							AccountRegistry: a.AccountRegistry,
+							TransactionData: txData,
 						})
 					}
 				}

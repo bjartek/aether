@@ -405,10 +405,12 @@ func (m *SplitViewModel) View() string {
 
 		// Only update content if something changed
 		if selectedIdx != m.lastSelectedRow || m.width != m.lastWidth || m.fullDetailMode != m.lastMode {
-			m.detailViewport.Width = m.width
+			// Account for horizontal padding (2 on each side = 4 total)
+			contentWidth := m.width - 4
+			m.detailViewport.Width = contentWidth
 			m.detailViewport.Height = m.height - 4
-			content := m.buildViewportContent(m.width, true)
-			wrappedContent := lipgloss.NewStyle().Width(m.width).Render(content)
+			content := m.buildViewportContent(contentWidth, true)
+			wrappedContent := lipgloss.NewStyle().Width(contentWidth).Render(content)
 			m.detailViewport.SetContent(wrappedContent)
 
 			// Update tracking
@@ -417,7 +419,8 @@ func (m *SplitViewModel) View() string {
 			m.lastMode = m.fullDetailMode
 		}
 
-		return m.detailViewport.View()
+		// Add horizontal padding to match table view
+		return lipgloss.NewStyle().Padding(0, 1).Render(m.detailViewport.View())
 	}
 
 	// Split view mode - table on left, detail on right
