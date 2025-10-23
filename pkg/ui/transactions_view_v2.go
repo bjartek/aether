@@ -7,6 +7,7 @@ import (
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/splitview"
 	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -21,6 +22,8 @@ type TransactionsViewV2 struct {
 	accountRegistry  *aether.AccountRegistry
 	showEventFields  bool
 	showRawAddresses bool
+	timeFormat       string                   // Time format from config
+	transactions     []aether.TransactionData // Store original data for rebuilding
 }
 
 // NewTransactionsViewV2WithConfig creates a new v2 transactions view based on splitview
@@ -63,18 +66,34 @@ func NewTransactionsViewV2WithConfig(cfg *config.Config) *TransactionsViewV2 {
 		keys:             DefaultTransactionsKeyMap(),
 		showEventFields:  cfg.UI.Defaults.ShowEventFields,
 		showRawAddresses: cfg.UI.Defaults.ShowRawAddresses,
+		timeFormat:       cfg.UI.Defaults.TimeFormat,
 	}
 }
 
 // Init returns the init command for inner splitview
 func (tv *TransactionsViewV2) Init() tea.Cmd { return tv.sv.Init() }
 
-// Update implements tea.Model interface - forwards all messages to splitview
+// Update implements tea.Model interface - handles toggles then forwards to splitview
 func (tv *TransactionsViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Capture dimensions for View() wrapping
-	if wsMsg, ok := msg.(tea.WindowSizeMsg); ok {
-		tv.width = wsMsg.Width
-		tv.height = wsMsg.Height
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		tv.width = msg.Width
+		tv.height = msg.Height
+	
+	case tea.KeyMsg:
+		// Handle toggle keys before forwarding to splitview
+		switch {
+		case key.Matches(msg, tv.keys.ToggleEventFields):
+			tv.showEventFields = !tv.showEventFields
+			// Refresh current row to update detail view
+			tv.refreshCurrentRow()
+			return tv, InputHandled()
+		case key.Matches(msg, tv.keys.ToggleRawAddresses):
+			tv.showRawAddresses = !tv.showRawAddresses
+			// Refresh all rows to update table and detail
+			tv.refreshAllRows()
+			return tv, InputHandled()
+		}
 	}
 	
 	_, cmd := tv.sv.Update(msg)
@@ -93,7 +112,35 @@ func (tv *TransactionsViewV2) Name() string {
 
 // KeyMap implements TabbedModel interface
 func (tv *TransactionsViewV2) KeyMap() help.KeyMap {
-	return tv.sv.KeyMap()
+	return transactionsKeyMapAdapter{
+		splitviewKeys: tv.sv.KeyMap(),
+		toggleKeys:    tv.keys,
+	}
+}
+
+// transactionsKeyMapAdapter combines splitview and toggle keys
+type transactionsKeyMapAdapter struct {
+	splitviewKeys help.KeyMap
+	toggleKeys    TransactionsKeyMap
+}
+
+func (k transactionsKeyMapAdapter) ShortHelp() []key.Binding {
+	// Combine splitview short help with toggle keys
+	svHelp := k.splitviewKeys.ShortHelp()
+	return append(svHelp, k.toggleKeys.ToggleEventFields, k.toggleKeys.ToggleRawAddresses)
+}
+
+func (k transactionsKeyMapAdapter) FullHelp() [][]key.Binding {
+	// Get splitview full help
+	svHelp := k.splitviewKeys.FullHelp()
+	
+	// Add toggle keys as a new row
+	toggleRow := []key.Binding{
+		k.toggleKeys.ToggleEventFields,
+		k.toggleKeys.ToggleRawAddresses,
+	}
+	
+	return append(svHelp, toggleRow)
 }
 
 // FooterView implements TabbedModel interface
@@ -108,8 +155,22 @@ func (tv *TransactionsViewV2) IsCapturingInput() bool {
 	return false
 }
 
+// SetAccountRegistry sets the account registry for friendly name resolution
+func (tv *TransactionsViewV2) SetAccountRegistry(registry *aether.AccountRegistry) {
+	tv.accountRegistry = registry
+}
+
 // AddTransaction accepts prebuilt TransactionData and converts it to a splitview row
 func (tv *TransactionsViewV2) AddTransaction(txData aether.TransactionData) {
+	// Store transaction data for rebuilding
+	tv.transactions = append(tv.transactions, txData)
+	
+	// Build and add row
+	tv.addTransactionRow(txData)
+}
+
+// addTransactionRow builds a splitview row from transaction data
+func (tv *TransactionsViewV2) addTransactionRow(txData aether.TransactionData) {
 	// Build table row
 	authDisplay := "N/A"
 	if len(txData.Authorizers) > 0 {
@@ -130,7 +191,7 @@ func (tv *TransactionsViewV2) AddTransaction(txData aether.TransactionData) {
 	}
 
 	row := table.Row{
-		txData.Timestamp.Format("15:04:05"),
+		txData.Timestamp.Format(tv.timeFormat),
 		truncateHex(txData.ID, 3, 3),
 		fmt.Sprintf("%d", txData.BlockHeight),
 		authDisplay,
@@ -144,4 +205,70 @@ func (tv *TransactionsViewV2) AddTransaction(txData aether.TransactionData) {
 
 	// Add to splitview
 	tv.sv.AddRow(splitview.NewRowData(row).WithContent(content).WithCode(code))
+}
+
+// refreshCurrentRow rebuilds only the current row's detail to reflect toggle changes
+func (tv *TransactionsViewV2) refreshCurrentRow() {
+	if len(tv.transactions) == 0 {
+		return
+	}
+	
+	// Get current cursor position
+	currentIdx := tv.sv.GetCursor()
+	if currentIdx < 0 || currentIdx >= len(tv.transactions) {
+		return
+	}
+	
+	// Get the transaction data for the current row
+	txData := tv.transactions[currentIdx]
+	
+	// Rebuild just this row with updated toggle states
+	authDisplay := "N/A"
+	if len(txData.Authorizers) > 0 {
+		addr := txData.Authorizers[0]
+		if tv.showRawAddresses || tv.accountRegistry == nil {
+			authDisplay = truncateHex(addr, 6, 4)
+		} else {
+			name := tv.accountRegistry.GetName(addr)
+			if name != addr {
+				authDisplay = name
+			} else {
+				authDisplay = truncateHex(addr, 6, 4)
+			}
+		}
+		if len(txData.Authorizers) > 1 {
+			authDisplay += fmt.Sprintf(" +%d", len(txData.Authorizers)-1)
+		}
+	}
+
+	row := table.Row{
+		txData.Timestamp.Format(tv.timeFormat),
+		truncateHex(txData.ID, 3, 3),
+		fmt.Sprintf("%d", txData.BlockHeight),
+		authDisplay,
+		string(txData.Type),
+		txData.Status,
+	}
+
+	// Build detail content/code with current toggle states
+	content := buildTransactionDetailContent(txData, tv.accountRegistry, tv.showEventFields, tv.showRawAddresses)
+	code := buildTransactionDetailCode(txData)
+
+	// Update only this row in splitview
+	tv.sv.UpdateRow(currentIdx, splitview.NewRowData(row).WithContent(content).WithCode(code))
+}
+
+// refreshAllRows rebuilds all rows to reflect toggle changes
+func (tv *TransactionsViewV2) refreshAllRows() {
+	if len(tv.transactions) == 0 {
+		return
+	}
+	
+	// Clear existing rows and rebuild from stored transaction data
+	tv.sv.SetRows([]splitview.RowData{})
+	
+	// Rebuild all rows with current toggle states
+	for _, txData := range tv.transactions {
+		tv.addTransactionRow(txData)
+	}
 }

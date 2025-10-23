@@ -139,12 +139,20 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		model, tabCmd := m.tabs[m.activeTab].Update(msg)
 		m.tabs[m.activeTab] = model.(TabbedModel)
 		
-		// If tab handled it (returned a command), we're done
+		// Check if tab consumed the input by returning InputHandledMsg
 		if tabCmd != nil {
-			return m, tabCmd
+			// Execute command to check its type
+			if resultMsg := tabCmd(); resultMsg != nil {
+				if _, isHandled := resultMsg.(InputHandledMsg); isHandled {
+					// Tab handled it, don't process further
+					return m, nil
+				}
+				// Not InputHandledMsg, need to return the message as a command
+				return m, func() tea.Msg { return resultMsg }
+			}
 		}
 		
-		// Tab didn't handle it, check for help toggle
+		// Tab didn't consume it, check for help toggle
 		if key.Matches(msg, m.keys.Help) {
 			m.footer, _ = m.footer.Update(msg)
 			// Recalculate content height after toggling help
@@ -189,6 +197,13 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Forward log message to logs tab only
 		_, cmd := m.tabs[m.logsTabIdx].Update(msg)
 		return m, cmd
+	
+	case aether.OverflowReadyMsg:
+		// Set account registry in transactions view
+		if txView, ok := m.tabs[m.transactionsTabIdx].(*TransactionsViewV2); ok {
+			txView.SetAccountRegistry(msg.AccountRegistry)
+		}
+		return m, nil
 	}
 
 	// Forward other messages to footer only (tabs already handled above)

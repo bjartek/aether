@@ -5,6 +5,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// InputHandledMsg signals that a tab has consumed a key input
+// and parent should not process it further
+type InputHandledMsg struct{}
+
+// InputHandled returns a command that signals input was handled
+func InputHandled() tea.Cmd {
+	return func() tea.Msg { return InputHandledMsg{} }
+}
+
 // TabbedModel defines the interface for models that can be used as tabs
 type TabbedModel interface {
 	tea.Model

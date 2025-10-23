@@ -165,13 +165,13 @@ func (lv *LogsViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, lv.keys.Filter):
 				lv.filterMode = true
 				lv.filterInput.Focus()
-				return lv, nil
+				return lv, InputHandled()
 			case key.Matches(msg, lv.keys.Cancel) && lv.filterText != "":
 				lv.filterText = ""
 				lv.filterInput.SetValue("")
 				lv.applyFilter()
 				lv.updateViewport()
-				return lv, nil
+				return lv, InputHandled()
 			}
 		}
 	}

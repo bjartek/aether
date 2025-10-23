@@ -322,6 +322,27 @@ func (m *SplitViewModel) GetRows() []RowData {
 	return m.rows
 }
 
+// GetCursor returns the current table cursor position
+func (m *SplitViewModel) GetCursor() int {
+	return m.table.Cursor()
+}
+
+// UpdateRow updates a specific row at the given index
+func (m *SplitViewModel) UpdateRow(index int, row RowData) {
+	if index < 0 || index >= len(m.rows) {
+		return
+	}
+	m.rows[index] = row
+	m.updateTableRows()
+	// Clear cache for this row
+	delete(m.codeFullscreenCache, index)
+	delete(m.codeDetailCache, index)
+	// Force viewport refresh if this is the selected row
+	if index == m.table.Cursor() {
+		m.lastSelectedRow = -1
+	}
+}
+
 // updateTableRows updates the table with current rows
 func (m *SplitViewModel) updateTableRows() {
 	tableRows := make([]table.Row, len(m.rows))

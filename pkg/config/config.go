@@ -120,9 +120,10 @@ type ViewLayoutConfig struct {
 
 // DefaultsConfig contains default display modes
 type DefaultsConfig struct {
-	ShowEventFields  bool `mapstructure:"show_event_fields"`
-	ShowRawAddresses bool `mapstructure:"show_raw_addresses"`
-	FullDetailMode   bool `mapstructure:"full_detail_mode"`
+	ShowEventFields  bool   `mapstructure:"show_event_fields"`
+	ShowRawAddresses bool   `mapstructure:"show_raw_addresses"`
+	FullDetailMode   bool   `mapstructure:"full_detail_mode"`
+	TimeFormat       string `mapstructure:"time_format"` // Go time format string, default "15:04:05"
 }
 
 // FilterConfig contains filter settings

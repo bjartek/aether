@@ -81,6 +81,7 @@ func DefaultConfig() *Config {
 				ShowEventFields:  true,
 				ShowRawAddresses: false,
 				FullDetailMode:   false,
+				TimeFormat:       "15:04:05",
 			},
 			Filter: FilterConfig{
 				CharLimit: 50,
