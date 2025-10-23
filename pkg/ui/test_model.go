@@ -16,6 +16,7 @@ import (
 type TestModel struct {
 	tabs               []TabbedModel
 	activeTab          int
+	dashboardTabIdx    int
 	transactionsTabIdx int
 	eventsTabIdx       int
 	logsTabIdx         int
@@ -50,12 +51,13 @@ func (k testKeyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// NewTestModelWithConfig creates a test model with TransactionsViewV2, EventsViewV2, and LogsViewV2
+// NewTestModelWithConfig creates a test model with Dashboard, Transactions, Events, and Logs
 func NewTestModelWithConfig(cfg *config.Config) TestModel {
+	dashboardView := NewDashboardViewV2WithConfig(cfg)
 	txView := NewTransactionsViewV2WithConfig(cfg)
 	eventsView := NewEventsViewV2WithConfig(cfg)
 	logsView := NewLogsViewV2WithConfig(cfg)
-	tabs := []TabbedModel{txView, eventsView, logsView}
+	tabs := []TabbedModel{dashboardView, txView, eventsView, logsView}
 
 	// Create tab key bindings dynamically based on number of tabs
 	tabBindings := make([]key.Binding, len(tabs))
@@ -71,9 +73,10 @@ func NewTestModelWithConfig(cfg *config.Config) TestModel {
 	return TestModel{
 		tabs:               tabs,
 		activeTab:          0,
-		transactionsTabIdx: 0,
-		eventsTabIdx:       1,
-		logsTabIdx:         2,
+		dashboardTabIdx:    0,
+		transactionsTabIdx: 1,
+		eventsTabIdx:       2,
+		logsTabIdx:         3,
 		footer:             NewFooterModel(),
 		keys: testKeyMap{
 			NextTab: key.NewBinding(
