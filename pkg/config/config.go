@@ -94,6 +94,7 @@ type UIConfig struct {
 	Defaults DefaultsConfig `mapstructure:"defaults"`
 	Filter   FilterConfig   `mapstructure:"filter"`
 	Save     SaveConfig     `mapstructure:"save"`
+	Debug    bool           `mapstructure:"debug"` // Enable debug logging for UI components
 }
 
 // HistoryConfig contains history limits

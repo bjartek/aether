@@ -185,17 +185,10 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		model, tabCmd := m.tabs[m.activeTab].Update(msg)
 		m.tabs[m.activeTab] = model.(TabbedModel)
 		
-		// Check if tab consumed the input by returning InputHandledMsg
+		// Return the command from the tab (don't execute it)
+		// This allows async commands like ExecutionCompleteMsg to work properly
 		if tabCmd != nil {
-			// Execute command to check its type
-			if resultMsg := tabCmd(); resultMsg != nil {
-				if _, isHandled := resultMsg.(InputHandledMsg); isHandled {
-					// Tab handled it, don't process further
-					return m, nil
-				}
-				// Not InputHandledMsg, need to return the message as a command
-				return m, func() tea.Msg { return resultMsg }
-			}
+			return m, tabCmd
 		}
 		
 		// Tab didn't consume it, check for help toggle
@@ -251,6 +244,12 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := m.tabs[m.logsTabIdx].Update(msg)
 		return m, cmd
 	
+	case ExecutionCompleteMsg:
+		// Forward execution result to runner tab
+		model, cmd := m.tabs[m.runnerTabIdx].Update(msg)
+		m.tabs[m.runnerTabIdx] = model.(TabbedModel)
+		return m, cmd
+	
 	case aether.OverflowReadyMsg:
 		// Set account registry in transactions and events views
 		if txView, ok := m.tabs[m.transactionsTabIdx].(*TransactionsViewV2); ok {
@@ -258,6 +257,11 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if eventsView, ok := m.tabs[m.eventsTabIdx].(*EventsViewV2); ok {
 			eventsView.SetAccountRegistry(msg.AccountRegistry)
+		}
+		// Set overflow and account registry in runner view
+		if runnerView, ok := m.tabs[m.runnerTabIdx].(*RunnerViewV2); ok {
+			runnerView.SetOverflow(msg.Overflow)
+			runnerView.SetAccountRegistry(msg.AccountRegistry)
 		}
 		return m, nil
 	}

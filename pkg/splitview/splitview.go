@@ -325,8 +325,13 @@ func (m *SplitViewModel) GetRows() []RowData {
 }
 
 // GetCursor returns the current table cursor position
-func (m *SplitViewModel) GetCursor() int {
-	return m.table.Cursor()
+func (sv *SplitViewModel) GetCursor() int {
+	return sv.table.Cursor()
+}
+
+// IsFullscreen returns whether the view is in fullscreen mode
+func (sv *SplitViewModel) IsFullscreen() bool {
+	return sv.fullDetailMode
 }
 
 // UpdateRow updates a specific row at the given index

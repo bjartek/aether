@@ -101,8 +101,8 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 			key.WithHelp("enter/space", "toggle detail"),
 		),
 		Run: key.NewBinding(
-			key.WithKeys("ctrl+r", "r"),
-			key.WithHelp("r/ctrl+r", "run"),
+			key.WithKeys("r"),
+			key.WithHelp("r", "run"),
 		),
 		NextField: key.NewBinding(
 			key.WithKeys("tab"),
@@ -124,6 +124,19 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 			key.WithKeys("enter", " "),
 			key.WithHelp("enter/space", "toggle detail"),
 		),
+	}
+}
+
+// ShortHelp returns keybindings to be shown in the mini help view
+func (k RunnerKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Run, k.Refresh}
+}
+
+// FullHelp returns keybindings for the expanded help view
+func (k RunnerKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Up, k.Down, k.Enter},
+		{k.Run, k.Save, k.Refresh},
 	}
 }
 
