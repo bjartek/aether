@@ -34,6 +34,23 @@ type BlockTransactionMsg struct {
 	TransactionData TransactionData
 }
 
+// BlockEventMsg is sent when an event is processed
+type BlockEventMsg struct {
+	EventData EventData
+}
+
+// EventData holds event information for display
+type EventData struct {
+	Name             string
+	BlockHeight      uint64
+	BlockID          string
+	TransactionID    string
+	TransactionIndex int
+	EventIndex       int
+	Fields           map[string]interface{}
+	Timestamp        time.Time
+}
+
 type ArgumentData struct {
 	Name  string
 	Value interface{} // Keep as interface{} for proper formatting
@@ -350,6 +367,23 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 						teaProgram.Send(BlockTransactionMsg{
 							TransactionData: txData,
 						})
+
+						// Send individual event messages
+						for eventIndex, event := range events {
+							eventData := EventData{
+								Name:             event.Name,
+								BlockHeight:      br.Block.Height,
+								BlockID:          br.Block.ID.String(),
+								TransactionID:    ot.Id,
+								TransactionIndex: ot.TransactionIndex,
+								EventIndex:       eventIndex,
+								Fields:           event.Fields,
+								Timestamp:        time.Now(),
+							}
+							teaProgram.Send(BlockEventMsg{
+								EventData: eventData,
+							})
+						}
 					}
 				}
 

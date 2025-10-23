@@ -17,6 +17,7 @@ type TestModel struct {
 	tabs               []TabbedModel
 	activeTab          int
 	transactionsTabIdx int
+	eventsTabIdx       int
 	logsTabIdx         int
 	width              int
 	height             int
@@ -49,11 +50,12 @@ func (k testKeyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// NewTestModelWithConfig creates a test model with TransactionsViewV2 and LogsViewV2
+// NewTestModelWithConfig creates a test model with TransactionsViewV2, EventsViewV2, and LogsViewV2
 func NewTestModelWithConfig(cfg *config.Config) TestModel {
 	txView := NewTransactionsViewV2WithConfig(cfg)
+	eventsView := NewEventsViewV2WithConfig(cfg)
 	logsView := NewLogsViewV2WithConfig(cfg)
-	tabs := []TabbedModel{txView, logsView}
+	tabs := []TabbedModel{txView, eventsView, logsView}
 
 	// Create tab key bindings dynamically based on number of tabs
 	tabBindings := make([]key.Binding, len(tabs))
@@ -70,7 +72,8 @@ func NewTestModelWithConfig(cfg *config.Config) TestModel {
 		tabs:               tabs,
 		activeTab:          0,
 		transactionsTabIdx: 0,
-		logsTabIdx:         1,
+		eventsTabIdx:       1,
+		logsTabIdx:         2,
 		footer:             NewFooterModel(),
 		keys: testKeyMap{
 			NextTab: key.NewBinding(
@@ -192,6 +195,13 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			txView.AddTransaction(msg.TransactionData)
 		}
 		return m, nil
+	
+	case aether.BlockEventMsg:
+		// Forward event to events tab
+		if eventsView, ok := m.tabs[m.eventsTabIdx].(*EventsViewV2); ok {
+			eventsView.AddEvent(msg.EventData)
+		}
+		return m, nil
 
 	case logs.LogLineMsg:
 		// Forward log message to logs tab only
@@ -199,9 +209,12 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	
 	case aether.OverflowReadyMsg:
-		// Set account registry in transactions view
+		// Set account registry in transactions and events views
 		if txView, ok := m.tabs[m.transactionsTabIdx].(*TransactionsViewV2); ok {
 			txView.SetAccountRegistry(msg.AccountRegistry)
+		}
+		if eventsView, ok := m.tabs[m.eventsTabIdx].(*EventsViewV2); ok {
+			eventsView.SetAccountRegistry(msg.AccountRegistry)
 		}
 		return m, nil
 	}
@@ -276,59 +289,9 @@ func (m TestModel) View() string {
 	return lipgloss.JoinVertical(lipgloss.Top, parts...)
 }
 
-// renderHeader renders tab bar (matching cmd/layout style exactly)
+// renderHeader renders tab bar using theme styles from styles.go
 func (m TestModel) renderHeader() string {
-	primaryColor := lipgloss.Color("#268bd2")
-	mutedColor := lipgloss.Color("#586e75")
-
-	// Tab border styles
-	activeTabBorder := lipgloss.Border{
-		Top:         "─",
-		Bottom:      " ",
-		Left:        "│",
-		Right:       "│",
-		TopLeft:     "╭",
-		TopRight:    "╮",
-		BottomLeft:  "┘",
-		BottomRight: "└",
-	}
-
-	tabBorder := lipgloss.Border{
-		Top:         "─",
-		Bottom:      "─",
-		Left:        "│",
-		Right:       "│",
-		TopLeft:     "╭",
-		TopRight:    "╮",
-		BottomLeft:  "┴",
-		BottomRight: "┴",
-	}
-
-	tabStyle := lipgloss.NewStyle().
-		Border(tabBorder, true).
-		BorderForeground(mutedColor).
-		Padding(0, 1).
-		Foreground(mutedColor)
-
-	activeTabStyle := lipgloss.NewStyle().
-		Border(activeTabBorder, true).
-		BorderForeground(primaryColor).
-		Padding(0, 1).
-		Foreground(primaryColor).
-		Bold(true)
-
-	tabGap := lipgloss.NewStyle().
-		BorderTop(true).
-		BorderBottom(true).
-		BorderForeground(mutedColor)
-
-	helpIndicatorStyle := lipgloss.NewStyle().
-		Foreground(mutedColor).
-		BorderTop(true).
-		BorderForeground(mutedColor).
-		Padding(0, 1)
-
-	// Render all tabs
+	// Render all tabs using theme styles
 	var tabs []string
 	for i, tab := range m.tabs {
 		style := tabStyle

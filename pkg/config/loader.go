@@ -129,6 +129,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ui.defaults.show_event_fields", defaults.UI.Defaults.ShowEventFields)
 	v.SetDefault("ui.defaults.show_raw_addresses", defaults.UI.Defaults.ShowRawAddresses)
 	v.SetDefault("ui.defaults.full_detail_mode", defaults.UI.Defaults.FullDetailMode)
+	v.SetDefault("ui.defaults.time_format", defaults.UI.Defaults.TimeFormat)
 	v.SetDefault("ui.filter.char_limit", defaults.UI.Filter.CharLimit)
 	v.SetDefault("ui.filter.width", defaults.UI.Filter.Width)
 	v.SetDefault("ui.save.default_directory", defaults.UI.Save.DefaultDirectory)

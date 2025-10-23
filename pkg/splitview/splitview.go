@@ -315,6 +315,8 @@ func (m *SplitViewModel) SetRows(rows []RowData) {
 	// Clear caches since we have new rows
 	m.codeFullscreenCache = make(map[int]string)
 	m.codeDetailCache = make(map[int]string)
+	// Force viewport refresh on next render
+	m.lastSelectedRow = -1
 }
 
 // GetRows returns the current rows
