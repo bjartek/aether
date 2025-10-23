@@ -29,8 +29,6 @@ import (
 type RunnerViewV2 struct {
 	sv               *splitview.SplitViewModel
 	keys             RunnerKeyMap
-	width            int
-	height           int
 	scripts          []ScriptFile
 	overflow         *overflow.OverflowState
 	accountRegistry  *aether.AccountRegistry
@@ -54,9 +52,9 @@ func NewRunnerViewV2WithConfig(cfg *config.Config) *RunnerViewV2 {
 	}
 
 	columns := []splitview.ColumnConfig{
-		{Name: "Type", Width: 12},
-		{Name: "Name", Width: 40},
-		{Name: "Network", Width: 10},
+		{Name: "Type", Width: 11},
+		{Name: "Name", Width: 22},
+		{Name: "Network", Width: 7},
 	}
 
 	// Table styles
@@ -91,7 +89,7 @@ func NewRunnerViewV2WithConfig(cfg *config.Config) *RunnerViewV2 {
 		if err != nil {
 			logFile = os.Stderr // Fallback to stderr if file can't be opened
 		}
-		
+
 		logger = zerolog.New(logFile).
 			With().
 			Timestamp().
@@ -157,14 +155,14 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return rv, nil
-				
+
 			case msg.Type == tea.KeyEsc:
 				// Cancel save
 				rv.savingConfig = false
 				rv.saveInput.SetValue("")
 				rv.saveError = ""
 				return rv, nil
-				
+
 			default:
 				// Update save input
 				var cmd tea.Cmd
@@ -172,7 +170,7 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return rv, cmd
 			}
 		}
-		
+
 		// Handle form editing
 		if rv.editingField && len(rv.inputFields) > 0 {
 			switch {
@@ -186,7 +184,7 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
 				return rv, nil
-				
+
 			case key.Matches(msg, rv.keys.Enter):
 				// Move to next field or exit editing if last field
 				rv.inputFields[rv.activeFieldIndex].Input.Blur()
@@ -197,7 +195,7 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rv.editingField = false
 				}
 				return rv, nil
-				
+
 			default:
 				// Update active input field
 				var cmd tea.Cmd
@@ -205,7 +203,7 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return rv, cmd
 			}
 		}
-		
+
 		// Handle navigation between fields (when not editing)
 		if !rv.editingField && len(rv.inputFields) > 0 && rv.sv.IsFullscreen() {
 			switch {
@@ -216,7 +214,7 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
 				return rv, nil
-				
+
 			case key.Matches(msg, rv.keys.PrevField):
 				rv.activeFieldIndex = (rv.activeFieldIndex - 1 + len(rv.inputFields)) % len(rv.inputFields)
 				selectedIdx := rv.sv.GetCursor()
@@ -224,7 +222,7 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
 				return rv, nil
-				
+
 			case key.Matches(msg, rv.keys.Enter):
 				// Enter editing mode for current field
 				rv.editingField = true
@@ -236,11 +234,11 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return rv, nil
 			}
 		}
-		
+
 		// Handle refresh
 		if key.Matches(msg, rv.keys.Refresh) {
 			rv.scanFiles()
-			
+
 			// Rebuild splitview rows
 			rows := make([]splitview.RowData, 0)
 			for _, script := range rv.scripts {
@@ -251,15 +249,12 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				row := table.Row{typeStr, script.Name, script.Network}
 				content := rv.buildScriptDetail(script)
 				codeToShow := script.HighlightedCode
-				if codeToShow == "" {
-					codeToShow = script.Code
-				}
 				rows = append(rows, splitview.NewRowData(row).WithContent(content).WithCode(codeToShow))
 			}
 			rv.sv.SetRows(rows)
 			return rv, nil
 		}
-		
+
 		// Handle save config
 		if key.Matches(msg, rv.keys.Save) && rv.sv.IsFullscreen() {
 			rv.savingConfig = true
@@ -267,11 +262,13 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			rv.saveError = ""
 			return rv, nil
 		}
-		
+
 		// Handle enter/space to toggle fullscreen and build forms
 		if key.Matches(msg, rv.keys.Enter) || key.Matches(msg, rv.keys.ToggleFullDetail) {
-			// Build input fields when entering fullscreen
-			if !rv.sv.IsFullscreen() {
+			wasFullscreen := rv.sv.IsFullscreen()
+
+			// Build input fields BEFORE toggling fullscreen
+			if !wasFullscreen {
 				selectedIdx := rv.sv.GetCursor()
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					script := rv.scripts[selectedIdx]
@@ -279,8 +276,20 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rv.tryLoadConfigFromJSON(script)
 				}
 			}
+
+			// Pass to splitview to toggle fullscreen - it will re-render with fields
+			_, cmd := rv.sv.Update(msg)
+			cmds = append(cmds, cmd)
+
+			// Clear input fields when exiting fullscreen
+			if wasFullscreen && !rv.sv.IsFullscreen() {
+				rv.inputFields = make([]InputField, 0)
+				rv.editingField = false
+			}
+
+			return rv, tea.Batch(cmds...)
 		}
-		
+
 		// Handle 'r' key to run selected script/transaction
 		if key.Matches(msg, rv.keys.Run) {
 			rv.logger.Debug().
@@ -288,7 +297,7 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Int("selectedIdx", rv.sv.GetCursor()).
 				Int("scriptsCount", len(rv.scripts)).
 				Msg("Run key matched!")
-			
+
 			if rv.overflow != nil {
 				selectedIdx := rv.sv.GetCursor()
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
@@ -297,13 +306,13 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						Str("scriptName", script.Name).
 						Str("scriptType", string(script.Type)).
 						Msg("Executing script/transaction")
-					
+
 					// Build input fields if not already built
 					if len(rv.inputFields) == 0 {
 						rv.buildInputFields(script)
 						rv.tryLoadConfigFromJSON(script)
 					}
-					
+
 					rv.executionResult = ""
 					rv.executionError = nil
 					return rv, rv.executeScript(script)
@@ -344,7 +353,7 @@ func (rv *RunnerViewV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				rv.executionResult = "✓ Execution successful"
 			}
 		}
-		
+
 		// Refresh the current row to show results inline
 		selectedIdx := rv.sv.GetCursor()
 		if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
@@ -532,20 +541,25 @@ func (rv *RunnerViewV2) refreshDetailContent(idx int, script ScriptFile) {
 
 // buildInputFields creates input fields for the selected script
 func (rv *RunnerViewV2) buildInputFields(script ScriptFile) {
+	rv.logger.Debug().
+		Str("scriptName", script.Name).
+		Str("scriptType", string(script.Type)).
+		Int("signers", script.Signers).
+		Int("parameters", len(script.Parameters)).
+		Msg("buildInputFields called")
+
 	rv.inputFields = make([]InputField, 0)
 
 	// Add signer fields for transactions
-	if script.Type == TypeTransaction && script.Signers > 0 {
-		for i := 0; i < script.Signers; i++ {
+	if script.Type == TypeTransaction && len(script.SignerParams) > 0 {
+		for _, signerParam := range script.SignerParams {
 			input := textinput.New()
-			input.Placeholder = "signer name"
+			input.Placeholder = "account name"
 			input.Width = 30
-			
-			label := "Signer"
-			if i > 0 {
-				label = fmt.Sprintf("PayloadSigner %d", i)
-			}
-			
+
+			// Use the actual parameter name from the prepare block
+			label := signerParam.Name
+
 			rv.inputFields = append(rv.inputFields, InputField{
 				Label:    label,
 				Input:    input,
@@ -559,7 +573,7 @@ func (rv *RunnerViewV2) buildInputFields(script ScriptFile) {
 		input := textinput.New()
 		input.Placeholder = param.Type
 		input.Width = 30
-		
+
 		rv.inputFields = append(rv.inputFields, InputField{
 			Label:    param.Name,
 			Input:    input,
@@ -571,7 +585,11 @@ func (rv *RunnerViewV2) buildInputFields(script ScriptFile) {
 	if len(rv.inputFields) > 0 {
 		rv.inputFields[0].Input.Focus()
 	}
-	
+
+	rv.logger.Debug().
+		Int("totalFields", len(rv.inputFields)).
+		Msg("buildInputFields completed")
+
 	// Pre-populate from Config if this script is from a JSON file
 	if script.Config != nil {
 		// Load signers from config
@@ -582,7 +600,7 @@ func (rv *RunnerViewV2) buildInputFields(script ScriptFile) {
 				signerIdx++
 			}
 		}
-		
+
 		// Load arguments from config
 		for i, field := range rv.inputFields {
 			if !field.IsSigner {
@@ -600,30 +618,30 @@ func (rv *RunnerViewV2) saveConfig(configName string) string {
 	if selectedIdx < 0 || selectedIdx >= len(rv.scripts) {
 		return "No script selected"
 	}
-	
+
 	script := rv.scripts[selectedIdx]
-	
+
 	// Build config from current input fields using Flow format
 	config := &flow.TransactionConfig{
 		Name:      script.Name,
 		Signers:   make([]string, 0),
 		Arguments: make(map[string]interface{}),
 	}
-	
+
 	// Collect signers
 	for _, field := range rv.inputFields {
 		if field.IsSigner && field.Input.Value() != "" {
 			config.Signers = append(config.Signers, field.Input.Value())
 		}
 	}
-	
+
 	// Collect arguments
 	for _, field := range rv.inputFields {
 		if !field.IsSigner && field.Input.Value() != "" {
 			config.Arguments[field.Label] = field.Input.Value()
 		}
 	}
-	
+
 	// Determine save path
 	var dir string
 	if script.IsFromJSON {
@@ -633,19 +651,19 @@ func (rv *RunnerViewV2) saveConfig(configName string) string {
 		// If .cdc file, save next to it
 		dir = filepath.Dir(script.Path)
 	}
-	
+
 	// Add .json extension if not present
 	filename := configName
 	if !strings.HasSuffix(filename, ".json") {
 		filename = filename + ".json"
 	}
 	savePath := filepath.Join(dir, filename)
-	
+
 	// Save using Flow format
 	if err := flow.SaveTransactionConfig(savePath, config); err != nil {
 		return fmt.Sprintf("Failed to save config: %v", err)
 	}
-	
+
 	return "" // Success
 }
 
@@ -655,7 +673,7 @@ func (rv *RunnerViewV2) tryLoadConfigFromJSON(script ScriptFile) {
 	if script.IsFromJSON {
 		return
 	}
-	
+
 	// Try to find matching .json file
 	jsonPath := strings.TrimSuffix(script.Path, ".cdc") + ".json"
 	config, err := flow.LoadTransactionConfig(jsonPath)
@@ -686,10 +704,10 @@ func (rv *RunnerViewV2) tryLoadConfigFromJSON(script ScriptFile) {
 func (rv *RunnerViewV2) executeScript(script ScriptFile) tea.Cmd {
 	// Capture values for async execution
 	o := rv.overflow
-	
+
 	// Build overflow options from input fields
 	var opts []overflow.OverflowInteractionOption
-	
+
 	// Collect signers and arguments
 	signerIndex := 0
 	for _, field := range rv.inputFields {
@@ -697,7 +715,7 @@ func (rv *RunnerViewV2) executeScript(script ScriptFile) tea.Cmd {
 		if value == "" {
 			continue
 		}
-		
+
 		if field.IsSigner {
 			// First signer uses WithSigner, rest use WithPayloadSigner
 			if signerIndex == 0 {
@@ -710,16 +728,16 @@ func (rv *RunnerViewV2) executeScript(script ScriptFile) tea.Cmd {
 			opts = append(opts, overflow.WithArg(field.Label, value))
 		}
 	}
-	
+
 	return func() tea.Msg {
 		if o == nil {
 			return ExecutionCompleteMsg{
 				Error: fmt.Errorf("overflow not initialized"),
 			}
 		}
-		
+
 		scriptName := script.Name
-		
+
 		if script.Type == TypeScript {
 			// Execute script with options
 			result := o.Script(scriptName, opts...)
@@ -824,11 +842,13 @@ func (rv *RunnerViewV2) scanDirectory(dir string, scriptType ScriptType, files *
 
 			// Detect network from config name
 			configNetwork := rv.detectNetwork(config.Name)
-			displayName := strings.TrimSuffix(filepath.Base(path), ".json") + " (config)"
+			// Use config.Name as the script name for execution
+			// This is what overflow expects (e.g., "transfer" not "transfer.emulator")
+			scriptName := config.Name
 
 			codeStr := string(code)
 			script := ScriptFile{
-				Name:            displayName,
+				Name:            scriptName,
 				Path:            path,
 				Type:            scriptType,
 				Code:            codeStr,
@@ -862,7 +882,7 @@ func (rv *RunnerViewV2) scanDirectory(dir string, scriptType ScriptType, files *
 		}
 
 		codeStr := string(content)
-		
+
 		// Calculate relative path from base directory to preserve nested folder structure
 		relPath, err := filepath.Rel(dir, path)
 		if err != nil {
@@ -871,14 +891,14 @@ func (rv *RunnerViewV2) scanDirectory(dir string, scriptType ScriptType, files *
 		}
 		// Remove .cdc extension to get the name overflow expects
 		name := strings.TrimSuffix(relPath, ".cdc")
-		
+
 		// Detect network from filename suffix (use base filename for detection)
 		basename := filepath.Base(path)
 		basenameWithoutExt := strings.TrimSuffix(basename, ".cdc")
 		network := rv.detectNetwork(basenameWithoutExt)
 		// Remove network suffix from display name if present
 		displayName := rv.removeNetworkSuffix(name)
-		
+
 		script := ScriptFile{
 			Name:            displayName,
 			Path:            path,
@@ -928,7 +948,7 @@ func (rv *RunnerViewV2) buildScriptDetail(script ScriptFile) string {
 	valueStyle := lipgloss.NewStyle().Foreground(accentColor)
 
 	renderField := func(label, value string) string {
-		return fieldStyle.Render(fmt.Sprintf("%-15s", label+":")) + " " + valueStyle.Render(value) + "\n"
+		return fieldStyle.Render(fmt.Sprintf("%-10s", label+":")) + " " + valueStyle.Render(value) + "\n"
 	}
 
 	var details strings.Builder
@@ -939,31 +959,43 @@ func (rv *RunnerViewV2) buildScriptDetail(script ScriptFile) string {
 		typeStr = "Transaction"
 	}
 
+	// Truncate path if too long to prevent forcing detail pane wider
+	displayPath := script.Path
+	maxPathLen := 35
+	if len(displayPath) > maxPathLen {
+		// Show end of path (most important part - filename)
+		displayPath = "..." + displayPath[len(displayPath)-32:]
+	}
+
+	// Truncate name if too long
+	displayName := script.Name
+	if len(displayName) > 30 {
+		displayName = displayName[:27] + "..."
+	}
+
 	details.WriteString(renderField("Type", typeStr))
-	details.WriteString(renderField("Name", script.Name))
-	details.WriteString(renderField("Path", script.Path))
+	details.WriteString(renderField("Name", displayName))
+	details.WriteString(renderField("Path", displayPath))
 	details.WriteString(renderField("Network", script.Network))
+
+	// Show indicator if pre-filled from config
+	if script.IsFromJSON && script.Config != nil {
+		configIcon := lipgloss.NewStyle().Foreground(accentColor).Render("📋")
+		details.WriteString(renderField("Config", configIcon+" Pre-filled"))
+	}
+
 	details.WriteString("\n")
 
-	if len(script.Parameters) > 0 {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("Parameters (%d):", len(script.Parameters))) + "\n")
-		for _, param := range script.Parameters {
-			details.WriteString(fmt.Sprintf("  • %s (%s)\n",
-				valueStyle.Render(param.Name),
-				valueStyle.Render(param.Type)))
-		}
-		details.WriteString("\n")
-	}
-
-	if script.Signers > 0 {
-		details.WriteString(renderField("Signers", fmt.Sprintf("%d", script.Signers)))
-		details.WriteString("\n")
-	}
-
 	// Show input forms if in fullscreen mode and have fields
+	rv.logger.Debug().
+		Bool("isFullscreen", rv.sv.IsFullscreen()).
+		Int("inputFieldsCount", len(rv.inputFields)).
+		Msg("buildScriptDetail checking if should show input fields")
+
 	if rv.sv.IsFullscreen() && len(rv.inputFields) > 0 {
+		// In fullscreen mode - show interactive input fields
 		details.WriteString("\n" + fieldStyle.Render("Input Fields:") + "\n\n")
-		
+
 		for i, field := range rv.inputFields {
 			// Highlight active field
 			labelText := field.Label + ":"
@@ -976,11 +1008,11 @@ func (rv *RunnerViewV2) buildScriptDetail(script ScriptFile) string {
 			} else {
 				labelText = fieldStyle.Render("  " + labelText)
 			}
-			
+
 			details.WriteString(labelText + "\n")
 			details.WriteString("  " + field.Input.View() + "\n\n")
 		}
-		
+
 		// Show save dialog if active
 		if rv.savingConfig {
 			details.WriteString("\n" + fieldStyle.Render("Save Config As:") + "\n")
@@ -988,9 +1020,53 @@ func (rv *RunnerViewV2) buildScriptDetail(script ScriptFile) string {
 			if rv.saveError != "" {
 				details.WriteString(lipgloss.NewStyle().Foreground(errorColor).Render(rv.saveError) + "\n")
 			}
+		} else {
+			// Show hint to run in fullscreen mode
+			details.WriteString("\n" + fieldStyle.Render("Press 'r' to run, 's' to save config") + "\n")
+		}
+	} else {
+		// In split view mode - show merged parameters/signers info with values if available
+
+		// Show signers with values from config if available
+		if len(script.SignerParams) > 0 {
+			details.WriteString(fieldStyle.Render("Signers") + "\n")
+			for i, signer := range script.SignerParams {
+				// Get value from config if available
+				value := ""
+				if script.Config != nil && i < len(script.Config.Signers) {
+					value = fmt.Sprintf(": %s", valueStyle.Render(script.Config.Signers[i]))
+				}
+				details.WriteString(fmt.Sprintf("  %s%s\n", valueStyle.Render(signer.Name), value))
+			}
+			details.WriteString("\n")
+		}
+
+		// Show arguments with values from config if available
+		if len(script.Parameters) > 0 {
+			details.WriteString(fieldStyle.Render("Arguments") + "\n")
+			for _, param := range script.Parameters {
+				// Get value from config if available
+				value := ""
+				if script.Config != nil {
+					if val, exists := script.Config.Arguments[param.Name]; exists {
+						valueStr := fmt.Sprintf("%v", val)
+						// Truncate long values
+						if len(valueStr) > 40 {
+							valueStr = valueStr[:37] + "..."
+						}
+						value = fmt.Sprintf(" = %s", valueStyle.Render(valueStr))
+					}
+				}
+				if value == "" {
+					// No value, show type
+					value = fmt.Sprintf(" (%s)", param.Type)
+				}
+				details.WriteString(fmt.Sprintf("  %s%s\n", valueStyle.Render(param.Name), value))
+			}
+			details.WriteString("\n")
 		}
 	}
-	
+
 	// Show execution results inline
 	if rv.executionError != nil {
 		details.WriteString(lipgloss.NewStyle().
@@ -1000,8 +1076,6 @@ func (rv *RunnerViewV2) buildScriptDetail(script ScriptFile) string {
 		details.WriteString(lipgloss.NewStyle().
 			Foreground(successColor).
 			Render(fmt.Sprintf("\n✓ %s\n", rv.executionResult)))
-	} else if !rv.sv.IsFullscreen() {
-		details.WriteString("\n" + fieldStyle.Render("Press 'enter' for fullscreen, 'r' to run") + "\n")
 	}
 
 	return details.String()
@@ -1030,7 +1104,8 @@ func (rv *RunnerViewV2) parseScriptFile(script *ScriptFile) {
 		// Parse signers from prepare block
 		if txd.Prepare != nil && txd.Prepare.FunctionDeclaration.ParameterList != nil {
 			prepareParams := txd.Prepare.FunctionDeclaration.ParameterList
-			script.Signers = len(prepareParams.ParametersByIdentifier())
+			script.SignerParams = rv.parseParameterList(prepareParams)
+			script.Signers = len(script.SignerParams)
 		}
 		return
 	}

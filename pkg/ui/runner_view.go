@@ -57,6 +57,7 @@ type ScriptFile struct {
 	Type            ScriptType
 	Parameters      []Parameter
 	Signers         int                     // Number of signers needed for transactions
+	SignerParams    []Parameter             // Signer parameter names from prepare block
 	Code            string                  // Raw code
 	HighlightedCode string                  // Syntax-highlighted code with ANSI colors
 	Config          *flow.TransactionConfig // Pre-populated config from JSON (if loaded from .json file)

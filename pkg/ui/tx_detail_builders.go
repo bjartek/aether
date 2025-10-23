@@ -204,7 +204,7 @@ func buildTransactionDetailContent(tx aether.TransactionData, registry *aether.A
 
 	// Script header (code body appended by caller)
 	if tx.Script != "" {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", "Script:")) + "\n")
+		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", "Script:")))
 	}
 
 	return details.String()
