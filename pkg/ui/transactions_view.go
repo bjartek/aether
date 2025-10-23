@@ -2,10 +2,8 @@ package ui
 
 import (
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -258,6 +256,7 @@ func NewTransactionsViewWithConfig(cfg *config.Config) *TransactionsView {
 		savingMode:          false,
 	}
 }
+
 func (tv *TransactionsView) Init() tea.Cmd {
 	return nil
 }
@@ -845,214 +844,15 @@ func (tv *TransactionsView) View() string {
 }
 
 // renderTransactionDetailText renders transaction details as plain text (for viewport)
-// width specifies the maximum width for text wrapping (0 = no wrapping)
+// Delegates to helpers to build content and code sections to enable splitview migration.
 func (tv *TransactionsView) renderTransactionDetailText(tx TransactionData) string {
-	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
-	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
-
-	// Helper function to align fields
-	renderField := func(label, value string) string {
-		return fieldStyle.Render(fmt.Sprintf("%-12s", label+":")) + " " + valueStyleDetail.Render(value) + "\n"
-	}
-
-	var details strings.Builder
-	details.WriteString(fieldStyle.Render("Transaction Details") + "\n\n")
-
-	details.WriteString(renderField("ID", tx.ID))
-	details.WriteString(renderField("Block", fmt.Sprintf("%d", tx.BlockHeight)))
-	details.WriteString(renderField("Block ID", tx.BlockID))
-	details.WriteString(renderField("Status", tx.Status))
-	details.WriteString(renderField("Index", fmt.Sprintf("%d", tx.Index)))
-	details.WriteString(renderField("Gas Limit", fmt.Sprintf("%d", tx.GasLimit)))
-	details.WriteString("\n")
-
-	// Account table with fixed-width columns using lipgloss Width
-	colWidth := 20
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Width(colWidth)
-	valueStyle := lipgloss.NewStyle().Foreground(accentColor).Width(colWidth)
-
-	// Headers
-	details.WriteString(headerStyle.Render("Proposer"))
-	details.WriteString(headerStyle.Render("Payer"))
-	details.WriteString(fieldStyle.Render("Authorizers"))
-	details.WriteString("\n")
-
-	// Format addresses with friendly names (unless raw mode is enabled)
-	proposerDisplay := tx.Proposer
-	if !tv.showRawAddresses && tv.accountRegistry != nil {
-		proposerDisplay = tv.accountRegistry.GetName(tx.Proposer)
-	}
-
-	payerDisplay := tx.Payer
-	if !tv.showRawAddresses && tv.accountRegistry != nil {
-		payerDisplay = tv.accountRegistry.GetName(tx.Payer)
-	}
-
-	for i, auth := range tx.Authorizers {
-		var authDisplay string
-		if !tv.showRawAddresses && tv.accountRegistry != nil {
-			authDisplay = tv.accountRegistry.GetName(auth)
-		} else {
-			authDisplay = auth
-		}
-
-		if i == 0 {
-			// First line with proposer, payer, and first authorizer
-			details.WriteString(valueStyle.Render(proposerDisplay))
-			details.WriteString(valueStyle.Render(payerDisplay))
-			details.WriteString(valueStyleDetail.Render(authDisplay))
-			details.WriteString("\n")
-		} else {
-			// Additional authorizers aligned under the authorizer column
-			details.WriteString(valueStyle.Render(""))
-			details.WriteString(valueStyle.Render(""))
-			details.WriteString(valueStyleDetail.Render(authDisplay))
-			details.WriteString("\n")
-		}
-	}
-
-	details.WriteString("\n")
-
-	if tx.Error != "" {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", "Error:")) + " " + lipgloss.NewStyle().Foreground(errorColor).Render(tx.Error) + "\n\n")
-	}
-
-	if len(tx.Events) > 0 {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", fmt.Sprintf("Events (%d):", len(tx.Events)))) + "\n")
-		for i, event := range tx.Events {
-			details.WriteString(fmt.Sprintf("  %d. %s\n", i+1, fieldStyle.Render(event.Name)))
-
-			// Display event fields if any and if showEventFields is true
-			if tv.showEventFields && len(event.Fields) > 0 {
-				// TODO: Use event.FieldOrder when available in overflow library
-				// For now, sort keys alphabetically for consistent ordering
-				// (Go maps don't preserve insertion order)
-				keys := make([]string, 0, len(event.Fields))
-				for key := range event.Fields {
-					keys = append(keys, key)
-				}
-				sort.Strings(keys)
-
-				// Find the longest key for alignment
-				maxKeyLen := 0
-				for _, key := range keys {
-					if len(key) > maxKeyLen {
-						maxKeyLen = len(key)
-					}
-				}
-
-				// Display fields aligned on :
-				for _, key := range keys {
-					val := event.Fields[key]
-					paddedKey := fmt.Sprintf("%-*s", maxKeyLen, key)
-
-					// Use simple indent for nested structures, lipgloss handles wrapping
-					valStr := FormatFieldValueWithRegistry(val, "       ", tv.accountRegistry, tv.showRawAddresses, 0)
-					details.WriteString(fmt.Sprintf("     %s: %s\n",
-						valueStyleDetail.Render(paddedKey),
-						valueStyleDetail.Render(valStr)))
-				}
-			}
-		}
-		details.WriteString("\n")
-	}
-
-	// Display EVM transactions if any
-	if len(tx.EVMTransactions) > 0 {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", fmt.Sprintf("EVM Transactions (%d):", len(tx.EVMTransactions)))) + "\n")
-		for i, evmTx := range tx.EVMTransactions {
-			details.WriteString(fmt.Sprintf("  %d. %s\n", i+1, valueStyleDetail.Render(evmTx.Transaction.Hash().Hex())))
-			details.WriteString(fmt.Sprintf("     Type:       %d\n", evmTx.Payload.TransactionType))
-			details.WriteString(fmt.Sprintf("     Gas Used:   %d\n", evmTx.Receipt.GasUsed))
-
-			if from, err := evmTx.Transaction.From(); err == nil {
-				details.WriteString(fmt.Sprintf("     From:       %s\n", from.Hex()))
-			}
-			if to := evmTx.Transaction.To(); to != nil {
-				details.WriteString(fmt.Sprintf("     To:         %s\n", to.Hex()))
-			}
-
-			// Display value if non-zero
-			if value := evmTx.Transaction.Value(); value != nil && value.Sign() > 0 {
-				// Convert wei to FLOW (1 FLOW = 1e18 wei)
-				weiBig := new(big.Float).SetInt(value)
-				divisor := new(big.Float).SetFloat64(1e18)
-				flowValue := new(big.Float).Quo(weiBig, divisor)
-				details.WriteString(fmt.Sprintf("     Value:      %s FLOW\n", flowValue.Text('f', 6)))
-			}
-
-			if evmTx.Payload.ErrorCode != 0 {
-				details.WriteString(fmt.Sprintf("     Error:      %s\n",
-					lipgloss.NewStyle().Foreground(errorColor).Render(evmTx.Payload.ErrorMessage)))
-			} else {
-				details.WriteString(fmt.Sprintf("     Status:     %s\n",
-					lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render("Success")))
-			}
-
-			// Display logs if any
-			if len(evmTx.Receipt.Logs) > 0 {
-				details.WriteString(fmt.Sprintf("     Logs:       %d\n", len(evmTx.Receipt.Logs)))
-				for logIdx, log := range evmTx.Receipt.Logs {
-					details.WriteString(fmt.Sprintf("       %d. Address: %s\n", logIdx+1, log.Address.Hex()))
-					if len(log.Topics) > 0 {
-						details.WriteString(fmt.Sprintf("          Topics: %d\n", len(log.Topics)))
-						for topicIdx, topic := range log.Topics {
-							details.WriteString(fmt.Sprintf("            %d: %s\n", topicIdx, topic.Hex()))
-						}
-					}
-					if len(log.Data) > 0 {
-						dataHex := fmt.Sprintf("0x%x", log.Data)
-						if len(dataHex) > 66 {
-							dataHex = dataHex[:66] + "..."
-						}
-						details.WriteString(fmt.Sprintf("          Data: %s\n", dataHex))
-					}
-				}
-			}
-		}
-		details.WriteString("\n")
-	}
-
-	if len(tx.Arguments) > 0 {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", fmt.Sprintf("Arguments (%d):", len(tx.Arguments)))) + "\n")
-
-		// Find the longest argument name for alignment
-		maxNameLen := 0
-		for _, arg := range tx.Arguments {
-			if len(arg.Name) > maxNameLen {
-				maxNameLen = len(arg.Name)
-			}
-		}
-
-		// Display arguments aligned on :
-		for _, arg := range tx.Arguments {
-			paddedName := fmt.Sprintf("%-*s", maxNameLen, arg.Name)
-
-			// Use simple indent for nested structures, lipgloss handles wrapping
-			valStr := FormatFieldValueWithRegistry(arg.Value, "    ", tv.accountRegistry, tv.showRawAddresses, 0)
-
-			details.WriteString(fmt.Sprintf("  %s: %s\n",
-				valueStyleDetail.Render(paddedName),
-				valueStyleDetail.Render(valStr)))
-		}
-		details.WriteString("\n")
-	}
-
-	if tx.Script != "" {
-		details.WriteString(fieldStyle.Render(fmt.Sprintf("%-12s", "Script:")) + "\n")
-		// Show syntax-highlighted script if available, otherwise raw script
-		scriptToShow := tx.HighlightedScript
-		if scriptToShow == "" {
-			scriptToShow = tx.Script
-		}
-		// Don't wrap in valueStyleDetail since highlighted code already has colors
-		details.WriteString(scriptToShow + "\n")
-	}
-
-	return details.String()
+    content := buildTransactionDetailContent(tx, tv.accountRegistry, tv.showEventFields, tv.showRawAddresses)
+    code := buildTransactionDetailCode(tx)
+    return content + code
 }
+
 
 // Stop is a no-op for the transactions view
 func (tv *TransactionsView) Stop() {
-	// No cleanup needed
+    // No cleanup needed
 }

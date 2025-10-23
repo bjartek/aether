@@ -78,12 +78,12 @@ func (k tabbedKeyMap) FullHelp() [][]key.Binding {
 func newTabbedKeyMap() tabbedKeyMap {
 	return tabbedKeyMap{
 		NextTab: key.NewBinding(
-			key.WithKeys("tab"),
-			key.WithHelp("tab", "next tab"),
+			key.WithKeys("tab", "right", "l"),
+			key.WithHelp("tab/→/l", "next tab"),
 		),
 		PrevTab: key.NewBinding(
-			key.WithKeys("shift+tab"),
-			key.WithHelp("shift+tab", "previous tab"),
+			key.WithKeys("shift+tab", "left", "h"),
+			key.WithHelp("shift+tab/←/h", "previous tab"),
 		),
 		Tab1: key.NewBinding(
 			key.WithKeys("1"),
