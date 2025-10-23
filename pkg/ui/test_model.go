@@ -7,10 +7,47 @@ import (
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/logs"
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// combinedKeyMapAdapter combines tab navigation keys and component keys
+type combinedKeyMapAdapter struct {
+	tabKeys       help.KeyMap
+	componentKeys help.KeyMap
+}
+
+func (c combinedKeyMapAdapter) ShortHelp() []key.Binding {
+	var keys []key.Binding
+	if c.tabKeys != nil {
+		keys = append(keys, c.tabKeys.ShortHelp()...)
+	}
+	if c.componentKeys != nil {
+		keys = append(keys, c.componentKeys.ShortHelp()...)
+	}
+	return keys
+}
+
+func (c combinedKeyMapAdapter) FullHelp() [][]key.Binding {
+	var groups [][]key.Binding
+	if c.tabKeys != nil {
+		groups = append(groups, c.tabKeys.FullHelp()...)
+	}
+	if c.componentKeys != nil {
+		groups = append(groups, c.componentKeys.FullHelp()...)
+	}
+	return groups
+}
+
+// NewCombinedKeyMap creates a combined keymap from tab keys and component keys
+func NewCombinedKeyMap(tabKeys, componentKeys help.KeyMap) help.KeyMap {
+	return combinedKeyMapAdapter{
+		tabKeys:       tabKeys,
+		componentKeys: componentKeys,
+	}
+}
 
 // TestModel mimics cmd/layout pattern with TabbedModel views
 type TestModel struct {
@@ -19,11 +56,12 @@ type TestModel struct {
 	dashboardTabIdx    int
 	transactionsTabIdx int
 	eventsTabIdx       int
+	runnerTabIdx       int
 	logsTabIdx         int
 	width              int
 	height             int
 	ready              bool
-	footer             FooterModel
+	help               HelpModel
 	headerHeight       int
 	keys               testKeyMap
 }
@@ -51,13 +89,14 @@ func (k testKeyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// NewTestModelWithConfig creates a test model with Dashboard, Transactions, Events, and Logs
+// NewTestModelWithConfig creates a test model with Dashboard, Transactions, Events, Runner, and Logs
 func NewTestModelWithConfig(cfg *config.Config) TestModel {
 	dashboardView := NewDashboardViewV2WithConfig(cfg)
 	txView := NewTransactionsViewV2WithConfig(cfg)
 	eventsView := NewEventsViewV2WithConfig(cfg)
+	runnerView := NewRunnerViewV2WithConfig(cfg)
 	logsView := NewLogsViewV2WithConfig(cfg)
-	tabs := []TabbedModel{dashboardView, txView, eventsView, logsView}
+	tabs := []TabbedModel{dashboardView, txView, eventsView, runnerView, logsView}
 
 	// Create tab key bindings dynamically based on number of tabs
 	tabBindings := make([]key.Binding, len(tabs))
@@ -76,8 +115,9 @@ func NewTestModelWithConfig(cfg *config.Config) TestModel {
 		dashboardTabIdx:    0,
 		transactionsTabIdx: 1,
 		eventsTabIdx:       2,
-		logsTabIdx:         3,
-		footer:             NewFooterModel(),
+		runnerTabIdx:       3,
+		logsTabIdx:         4,
+		help:               NewHelpModel(),
 		keys: testKeyMap{
 			NextTab: key.NewBinding(
 				key.WithKeys("tab", "right", "l"),
@@ -106,7 +146,7 @@ func (m TestModel) Init() tea.Cmd {
 	for _, tab := range m.tabs {
 		cmds = append(cmds, tab.Init())
 	}
-	cmds = append(cmds, m.footer.Init())
+	cmds = append(cmds, m.help.Init())
 	return tea.Batch(cmds...)
 }
 
@@ -160,7 +200,7 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		// Tab didn't consume it, check for help toggle
 		if key.Matches(msg, m.keys.Help) {
-			m.footer, _ = m.footer.Update(msg)
+			m.help.ShowAll = !m.help.ShowAll
 			// Recalculate content height after toggling help
 			adjustedMsg := tea.WindowSizeMsg{
 				Width:  m.width,
@@ -179,7 +219,7 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
-		m.footer.SetWidth(msg.Width)
+		m.help.SetWidth(msg.Width)
 
 		// Forward adjusted size to all tabs (matching cmd/layout pattern)
 		adjustedMsg := tea.WindowSizeMsg{
@@ -222,10 +262,8 @@ func (m TestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Forward other messages to footer only (tabs already handled above)
-	var footerCmd tea.Cmd
-	m.footer, footerCmd = m.footer.Update(msg)
-	return m, footerCmd
+	// Footer doesn't handle any messages
+	return m, nil
 }
 
 // calculateContentHeight returns available height for content (matching cmd/layout)
@@ -235,7 +273,7 @@ func (m TestModel) calculateContentHeight() int {
 		headerHeight = TabBarHeight
 	}
 	footerHeight := 0
-	if m.footer.ShowAll {
+	if m.help.ShowAll {
 		footerHeight = FooterHelpHeight
 	}
 	return m.height - headerHeight - footerHeight
@@ -251,17 +289,18 @@ func (m TestModel) View() string {
 	header := m.renderHeader()
 	m.headerHeight = lipgloss.Height(header)
 
-	// Set keymaps for help
-	m.footer.SetTabKeyMap(m.keys)
-	// Get keymap from active tab via TabbedModel interface
-	m.footer.SetKeyMap(m.tabs[m.activeTab].KeyMap())
+	// Combine tab navigation keys and component keys into single keymap
+	tabKeyMap := m.keys
+	componentKeyMap := m.tabs[m.activeTab].KeyMap()
+	combinedKeyMap := NewCombinedKeyMap(tabKeyMap, componentKeyMap)
+	m.help.SetKeyMap(combinedKeyMap)
 
 	// Get custom footer view from active tab (e.g., filter input)
 	tabFooterView := m.tabs[m.activeTab].FooterView()
 	tabFooterHeight := lipgloss.Height(tabFooterView)
 
 	// Render help footer
-	helpFooterView := m.footer.View()
+	helpFooterView := m.help.View()
 	helpFooterHeight := 0
 	if helpFooterView != "" {
 		helpFooterHeight = FooterHelpHeight

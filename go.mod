@@ -12,7 +12,6 @@ require (
 	github.com/cockroachdb/errors v1.11.3
 	github.com/enescakir/emoji v1.0.0
 	github.com/ethereum/go-ethereum v1.16.3
-	github.com/lrstanley/bubblezone v1.0.0
 	github.com/muesli/reflow v0.3.0
 	github.com/onflow/cadence v1.7.1
 	github.com/onflow/fcl-dev-wallet v0.8.1-0.20250202234348-69de8fd4c335

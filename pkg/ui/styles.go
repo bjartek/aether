@@ -48,7 +48,7 @@ var (
 			BorderForeground(borderColor).
 			Padding(0, 1)
 
-	// Tab border styles (inspired by bubblezone example)
+	// Tab border styles
 	activeTabBorder = lipgloss.Border{
 		Top:         "─",
 		Bottom:      " ",

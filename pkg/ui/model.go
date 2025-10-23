@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	zone "github.com/lrstanley/bubblezone"
 )
 
 // Feature toggle: enable splitview-based TransactionsViewV2
@@ -45,7 +44,6 @@ type Model struct {
 	width                 int
 	height                int
 	ready                 bool
-	zoneID                string // Zone ID prefix for mouse tracking
 	transactionsV2Enabled bool
 }
 
@@ -107,7 +105,6 @@ func NewModelWithConfig(cfg *config.Config) Model {
 		eventsTabIndex:        2,                // Index of the Events tab
 		runnerTabIndex:        3,                // Index of the Runner tab
 		logsTabIndex:          4,                // Index of the Logs tab
-		zoneID:                zone.NewPrefix(), // Initialize zone ID for mouse tracking
 		transactionsV2Enabled: useTransactionsV2,
 	}
 }
@@ -253,21 +250,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
-
-	case tea.MouseMsg:
-		// Handle mouse clicks on tabs
-		if msg.Action != tea.MouseActionRelease || msg.Button != tea.MouseButtonLeft {
-			break
-		}
-
-		// Check each tab to see if it was clicked
-		for i := range m.tabs {
-			tabID := fmt.Sprintf("%stab-%d", m.zoneID, i)
-			if zone.Get(tabID).InBounds(msg) {
-				m.activeTab = i
-				return m, nil
-			}
-		}
 
 	case tea.KeyMsg:
 		// Check if we're in a text input mode where we should skip global keybindings
@@ -453,8 +435,7 @@ func (m Model) View() string {
 		)
 	}
 
-	// Wrap output with zone.Scan() to enable mouse tracking
-	return zone.Scan(output)
+	return output
 }
 
 // renderHeader renders the header with tab navigation and help indicator.
@@ -468,9 +449,7 @@ func (m Model) renderHeader() string {
 		// Add number indicator to tab name
 		tabName := fmt.Sprintf("%d %s", i+1, tab.Name)
 
-		// Mark each tab with a zone for mouse tracking
-		tabID := fmt.Sprintf("%stab-%d", m.zoneID, i)
-		tabs = append(tabs, zone.Mark(tabID, style.Render(tabName)))
+		tabs = append(tabs, style.Render(tabName))
 	}
 
 	// Join tabs horizontally
