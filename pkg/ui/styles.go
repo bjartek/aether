@@ -1,6 +1,9 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/bjartek/aether/pkg/tabbedtui"
+	"github.com/charmbracelet/lipgloss"
+)
 
 // TODO: Add support for loading color schemes from ENV vars or .env file
 // Example: AETHER_COLOR_SCHEME=solarized-dark|solarized-light|dracula|gruvbox
@@ -120,8 +123,10 @@ var (
 			Foreground(accentColor)
 )
 
-// Exported style getters for use with tabbedtui package
-func GetTabStyle() lipgloss.Style         { return tabStyle }
-func GetActiveTabStyle() lipgloss.Style   { return activeTabStyle }
-func GetTabGapStyle() lipgloss.Style      { return tabGap }
-func GetHelpIndicatorStyle() lipgloss.Style { return helpIndicatorStyle }
+// GetTabbedStyles returns the tabbedtui.Styles configured with our theme colors
+func GetTabbedStyles() tabbedtui.Styles {
+	return tabbedtui.NewStyles(
+		tabbedtui.WithPrimaryColor(primaryColor),
+		tabbedtui.WithMutedColor(mutedColor),
+	)
+}

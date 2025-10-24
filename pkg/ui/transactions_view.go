@@ -6,6 +6,7 @@ import (
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/splitview"
+	"github.com/bjartek/aether/pkg/tabbedtui"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -200,7 +201,7 @@ func (tv *TransactionsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var cmd tea.Cmd
 				tv.saveInput, cmd = tv.saveInput.Update(msg)
 				tv.refreshCurrentRow()
-				return tv, tea.Batch(cmd, InputHandled())
+				return tv, tea.Batch(cmd, tabbedtui.InputHandled())
 			}
 		}
 
@@ -219,12 +220,12 @@ func (tv *TransactionsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tv.showEventFields = !tv.showEventFields
 			// Refresh current row to update detail view
 			tv.refreshCurrentRow()
-			return tv, InputHandled()
+			return tv, tabbedtui.InputHandled()
 		case key.Matches(msg, tv.keys.ToggleRawAddresses):
 			tv.showRawAddresses = !tv.showRawAddresses
 			// Refresh all rows to update table and detail
 			tv.refreshAllRows()
-			return tv, InputHandled()
+			return tv, tabbedtui.InputHandled()
 		}
 	}
 

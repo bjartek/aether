@@ -21,13 +21,8 @@ type TabbedModel struct {
 	headerHeight int
 	keys         TabbedModelKeyMap
 	
-	// Styling options
-	tabStyle         lipgloss.Style
-	activeTabStyle   lipgloss.Style
-	tabGapStyle      lipgloss.Style
-	helpStyle        lipgloss.Style
-	tabBarHeight     int
-	footerHelpHeight int
+	// Styling
+	styles Styles
 }
 
 // TabbedModelKeyMap defines keybindings for tab navigation
@@ -58,45 +53,10 @@ func (k TabbedModelKeyMap) FullHelp() [][]key.Binding {
 // Option is a functional option for configuring TabbedModel
 type Option func(*TabbedModel)
 
-// WithTabStyle sets the style for inactive tabs
-func WithTabStyle(style lipgloss.Style) Option {
+// WithStyles sets the styles for the tabbed model
+func WithStyles(styles Styles) Option {
 	return func(m *TabbedModel) {
-		m.tabStyle = style
-	}
-}
-
-// WithActiveTabStyle sets the style for the active tab
-func WithActiveTabStyle(style lipgloss.Style) Option {
-	return func(m *TabbedModel) {
-		m.activeTabStyle = style
-	}
-}
-
-// WithTabGapStyle sets the style for the gap between tabs
-func WithTabGapStyle(style lipgloss.Style) Option {
-	return func(m *TabbedModel) {
-		m.tabGapStyle = style
-	}
-}
-
-// WithHelpStyle sets the style for the help indicator
-func WithHelpStyle(style lipgloss.Style) Option {
-	return func(m *TabbedModel) {
-		m.helpStyle = style
-	}
-}
-
-// WithTabBarHeight sets the tab bar height
-func WithTabBarHeight(height int) Option {
-	return func(m *TabbedModel) {
-		m.tabBarHeight = height
-	}
-}
-
-// WithFooterHelpHeight sets the footer help height
-func WithFooterHelpHeight(height int) Option {
-	return func(m *TabbedModel) {
-		m.footerHelpHeight = height
+		m.styles = styles
 	}
 }
 
@@ -114,12 +74,14 @@ func NewModel(tabs []TabbedModelPage, opts ...Option) TabbedModel {
 		)
 	}
 
+	styles := NewStyles()
+	helpModel := NewHelpModel()
+	
 	m := TabbedModel{
-		tabs:             tabs,
-		activeTab:        0,
-		help:             NewHelpModel(),
-		tabBarHeight:     2,
-		footerHelpHeight: 4,
+		tabs:      tabs,
+		activeTab: 0,
+		help:      helpModel,
+		styles:    styles,
 		keys: TabbedModelKeyMap{
 			NextTab: key.NewBinding(
 				key.WithKeys("tab", "right", "l"),
@@ -145,6 +107,13 @@ func NewModel(tabs []TabbedModelPage, opts ...Option) TabbedModel {
 	for _, opt := range opts {
 		opt(&m)
 	}
+
+	// Apply help styles from the (possibly customized) styles
+	m.help.SetStyles(help.Styles{
+		FullKey:       m.styles.HelpKey,
+		FullDesc:      m.styles.HelpDesc,
+		FullSeparator: m.styles.HelpSeparator,
+	})
 
 	return m
 }
@@ -202,10 +171,26 @@ func (m TabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Tab didn't consume it, check for help toggle
 		if key.Matches(msg, m.keys.Help) {
 			m.help.ShowAll = !m.help.ShowAll
-			// Recalculate content height after toggling help
+			
+			// Calculate new content height based on help visibility
+			// We need to render help to get its actual height
+			headerHeight := m.headerHeight
+			
+			// Build combined keymap and render help to get actual height
+			tabKeyMap := m.keys
+			componentKeyMap := m.tabs[m.activeTab].KeyMap()
+			combinedKeyMap := NewCombinedKeyMap(tabKeyMap, componentKeyMap)
+			m.help.SetKeyMap(combinedKeyMap)
+			
+			// Now we can get the actual help height
+			helpHeight := m.help.Height()
+			
+			contentHeight := m.height - headerHeight - helpHeight
+			
+			// Forward adjusted size to all tabs
 			adjustedMsg := tea.WindowSizeMsg{
 				Width:  m.width,
-				Height: m.calculateContentHeight(),
+				Height: contentHeight,
 			}
 			for i := range m.tabs {
 				model, _ := m.tabs[i].Update(adjustedMsg)
@@ -250,15 +235,9 @@ func (m TabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // calculateContentHeight returns available height for content
 func (m TabbedModel) calculateContentHeight() int {
-	headerHeight := m.headerHeight
-	if headerHeight == 0 {
-		headerHeight = m.tabBarHeight
-	}
-	footerHeight := 0
-	if m.help.ShowAll {
-		footerHeight = m.footerHelpHeight
-	}
-	return m.height - headerHeight - footerHeight
+	// Use actual help height instead of constant
+	footerHeight := m.help.Height()
+	return m.height - m.headerHeight - footerHeight
 }
 
 // View implements tea.Model
@@ -274,19 +253,16 @@ func (m TabbedModel) View() string {
 	// Combine tab navigation keys and component keys into single keymap
 	tabKeyMap := m.keys
 	componentKeyMap := m.tabs[m.activeTab].KeyMap()
-	combinedKeyMap := newCombinedKeyMap(tabKeyMap, componentKeyMap)
+	combinedKeyMap := NewCombinedKeyMap(tabKeyMap, componentKeyMap)
 	m.help.SetKeyMap(combinedKeyMap)
 
 	// Get custom footer view from active tab (e.g., filter input)
 	tabFooterView := m.tabs[m.activeTab].FooterView()
 	tabFooterHeight := lipgloss.Height(tabFooterView)
 
-	// Render help footer
+	// Render help footer and calculate its actual height
 	helpFooterView := m.help.View()
-	helpFooterHeight := 0
-	if helpFooterView != "" {
-		helpFooterHeight = m.footerHelpHeight
-	}
+	helpFooterHeight := lipgloss.Height(helpFooterView)
 
 	totalFooterHeight := tabFooterHeight + helpFooterHeight
 
@@ -318,9 +294,9 @@ func (m TabbedModel) renderHeader() string {
 	// Render all tabs
 	var tabs []string
 	for i, tab := range m.tabs {
-		style := m.tabStyle
+		style := m.styles.Tab
 		if i == m.activeTab {
-			style = m.activeTabStyle
+			style = m.styles.ActiveTab
 		}
 		// Get tab name with key suffix
 		tabName := fmt.Sprintf("%s (%d)", tab.Name(), i+1)
@@ -337,13 +313,13 @@ func (m TabbedModel) renderHeader() string {
 	// Add gap to fill remaining space
 	tabsWidth := lipgloss.Width(row)
 	gapWidth := max(0, m.width-tabsWidth-helpWidth)
-	gap := m.tabGapStyle.Render(strings.Repeat(" ", gapWidth))
+	gap := m.styles.TabGap.Render(strings.Repeat(" ", gapWidth))
 
 	// Join tabs and gap at the bottom
 	row = lipgloss.JoinHorizontal(lipgloss.Bottom, row, gap)
 
 	// Add help indicator
-	helpIndicator := m.helpStyle.Render(helpText)
+	helpIndicator := m.styles.Help.Render(helpText)
 	return row + helpIndicator
 }
 
@@ -375,8 +351,8 @@ func (c combinedKeyMapAdapter) FullHelp() [][]key.Binding {
 	return groups
 }
 
-// newCombinedKeyMap creates a combined keymap from tab keys and component keys
-func newCombinedKeyMap(tabKeys, componentKeys help.KeyMap) help.KeyMap {
+// NewCombinedKeyMap creates a combined keymap from tab keys and component keys
+func NewCombinedKeyMap(tabKeys, componentKeys help.KeyMap) help.KeyMap {
 	return combinedKeyMapAdapter{
 		tabKeys:       tabKeys,
 		componentKeys: componentKeys,

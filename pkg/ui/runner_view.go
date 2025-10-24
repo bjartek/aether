@@ -11,6 +11,7 @@ import (
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/aether/pkg/splitview"
+	"github.com/bjartek/aether/pkg/tabbedtui"
 	"github.com/bjartek/overflow/v2"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -276,11 +277,11 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			rows = append(rows, splitview.NewRowData(row).WithContent(content).WithCode(codeToShow))
 		}
 		rv.sv.SetRows(rows)
-		
+
 		rv.logger.Info().
 			Int("scriptsFound", len(rv.scripts)).
 			Msg("Rescan complete")
-		
+
 		return rv, nil
 
 	case tea.KeyMsg:
@@ -303,24 +304,24 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if rv.saveError == "" {
 						rv.savingConfig = false
 						rv.saveInput.SetValue("")
-						
+
 						rv.logger.Info().
 							Str("configName", configName).
 							Msg("Config saved successfully - reloading files")
-						
+
 						// Show success message
 						rv.executionResult = fmt.Sprintf("Config saved as '%s.json'", configName)
 						rv.executionError = nil
-						
+
 						// Reload files from filesystem to pick up new config
 						oldCount := len(rv.scripts)
 						rv.scanFiles()
-						
+
 						rv.logger.Info().
 							Int("oldCount", oldCount).
 							Int("newCount", len(rv.scripts)).
 							Msg("Files reloaded after save")
-						
+
 						// Rebuild splitview rows
 						rows := make([]splitview.RowData, 0)
 						for i, script := range rv.scripts {
@@ -335,7 +336,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							content := rv.buildScriptDetail(script)
 							codeToShow := script.HighlightedCode
 							rows = append(rows, splitview.NewRowData(row).WithContent(content).WithCode(codeToShow))
-							
+
 							rv.logger.Debug().
 								Int("index", i).
 								Str("type", typeStr).
@@ -345,15 +346,15 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								Bool("isFromJSON", script.IsFromJSON).
 								Msg("Built row")
 						}
-						
+
 						rv.logger.Info().
 							Int("rowsBuilt", len(rows)).
 							Msg("Setting rows in splitview")
-						
+
 						rv.sv.SetRows(rows)
-						
+
 						rv.logger.Info().Msg("Rows set successfully")
-						
+
 						// Refresh detail to show success message
 						selectedIdx := rv.sv.GetCursor()
 						if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
@@ -383,13 +384,13 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Update save input
 				var cmd tea.Cmd
 				rv.saveInput, cmd = rv.saveInput.Update(msg)
-				
+
 				// Refresh detail content to show the updated input
 				selectedIdx := rv.sv.GetCursor()
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
-				
+
 				return rv, cmd
 			}
 		}
@@ -406,7 +407,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
-				return rv, InputHandled()
+				return rv, tabbedtui.InputHandled()
 
 			case key.Matches(msg, rv.keys.Enter):
 				// Finish editing current field and move to next field
@@ -423,7 +424,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
-				return rv, InputHandled()
+				return rv, tabbedtui.InputHandled()
 
 			case msg.Type == tea.KeyTab:
 				// Tab: finish editing and move to next field
@@ -434,7 +435,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
-				return rv, InputHandled()
+				return rv, tabbedtui.InputHandled()
 
 			case msg.Type == tea.KeyShiftTab:
 				// Shift-Tab: finish editing and move to previous field
@@ -445,7 +446,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
-				return rv, InputHandled()
+				return rv, tabbedtui.InputHandled()
 
 			default:
 				// Update active input field
@@ -472,7 +473,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
-				return rv, InputHandled()
+				return rv, tabbedtui.InputHandled()
 
 			case msg.Type == tea.KeyShiftTab:
 				// Shift-Tab: move to previous field
@@ -481,7 +482,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
-				return rv, InputHandled()
+				return rv, tabbedtui.InputHandled()
 
 			case key.Matches(msg, rv.keys.Enter):
 				// Enter: start editing the current field
@@ -491,7 +492,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
 					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
 				}
-				return rv, InputHandled()
+				return rv, tabbedtui.InputHandled()
 
 			case msg.Type == tea.KeyEsc:
 				// Esc: clear input fields and allow viewport scrolling
@@ -532,12 +533,12 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				rows = append(rows, splitview.NewRowData(row).WithContent(content).WithCode(codeToShow))
 			}
 			rv.sv.SetRows(rows)
-			
+
 			rv.logger.Info().
 				Int("scriptsFound", len(rv.scripts)).
 				Msg("Refresh complete")
-			
-			return rv, InputHandled()
+
+			return rv, tabbedtui.InputHandled()
 		}
 
 		// Handle save config (only when not editing)
@@ -545,7 +546,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			rv.savingConfig = true
 			rv.saveInput.Focus()
 			rv.saveError = ""
-			
+
 			// Refresh detail content to show save dialog
 			selectedIdx := rv.sv.GetCursor()
 			if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
@@ -565,12 +566,12 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					script := rv.scripts[selectedIdx]
 					rv.buildInputFields(script)
 					rv.tryLoadConfigFromJSON(script)
-					
+
 					// Clear any previous execution results when entering fullscreen
 					rv.executionResult = ""
 					rv.executionError = nil
 					rv.executing = false
-					
+
 					// Start in navigation mode (not editing) so user can press 'r' to run
 					// or Enter to start editing the first field
 					rv.activeFieldIndex = 0
@@ -601,7 +602,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				rv.executionResult = ""
 				rv.executionError = nil
 				rv.executing = false
-				
+
 				// Refresh detail content to show cleared state
 				selectedIdx := rv.sv.GetCursor()
 				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
@@ -704,7 +705,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	_, cmd := rv.sv.Update(msg)
 	cmds = append(cmds, cmd)
-	
+
 	// Check if cursor position changed after splitview update - clear execution results when navigating
 	currentIdx := rv.sv.GetCursor()
 	if currentIdx != rv.lastSelectedIdx && rv.lastSelectedIdx != -1 {
@@ -715,14 +716,14 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rv.executionResult = ""
 		rv.executionError = nil
 		rv.executing = false
-		
+
 		// Refresh detail content to show cleared state
 		if currentIdx >= 0 && currentIdx < len(rv.scripts) {
 			rv.refreshDetailContent(currentIdx, rv.scripts[currentIdx])
 		}
 	}
 	rv.lastSelectedIdx = currentIdx
-	
+
 	return rv, tea.Batch(cmds...)
 }
 
@@ -756,7 +757,7 @@ func (rv *RunnerView) Name() string {
 
 // KeyMap implements TabbedModel interface - combines runner and splitview keys
 func (rv *RunnerView) KeyMap() help.KeyMap {
-	return NewCombinedKeyMap(rv.keys, rv.sv.KeyMap())
+	return tabbedtui.NewCombinedKeyMap(rv.keys, rv.sv.KeyMap())
 }
 
 // FooterView implements TabbedModel interface - results shown inline in detail
@@ -847,7 +848,7 @@ func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) 
 	var b strings.Builder
 
 	b.WriteString("✓ Script executed successfully\n\n")
-	
+
 	// Show the Output field which uses underflow options from overflow
 	if result.Output != nil {
 		b.WriteString("Output:\n")
@@ -1211,7 +1212,7 @@ func (rv *RunnerView) scanDirectory(dir string, scriptType ScriptType, files *[]
 			rv.logger.Debug().
 				Str("jsonPath", path).
 				Msg("Found JSON file")
-			
+
 			config, err := flow.LoadTransactionConfig(path)
 			if err != nil {
 				rv.logger.Debug().
@@ -1235,7 +1236,7 @@ func (rv *RunnerView) scanDirectory(dir string, scriptType ScriptType, files *[]
 					Msg("Referenced .cdc file not found - skipping JSON")
 				return nil
 			}
-			
+
 			rv.logger.Debug().
 				Str("jsonPath", path).
 				Str("cdcPath", cdcPath).
@@ -1248,7 +1249,7 @@ func (rv *RunnerView) scanDirectory(dir string, scriptType ScriptType, files *[]
 
 			// Detect network from config name
 			configNetwork := rv.detectNetwork(config.Name)
-			
+
 			// Use JSON filename (without extension) as display name to make configs unique
 			// The actual execution name (config.Name) is stored in the Config object
 			jsonFilename := filepath.Base(path)

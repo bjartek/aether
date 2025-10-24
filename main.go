@@ -186,12 +186,7 @@ func main() {
 	// Create model with pre-created views using new tabbedtui package
 	tabs := []tabbedtui.TabbedModelPage{dashboardView, txView, eventsView, runnerView, logsView}
 	model := tabbedtui.NewModel(tabs,
-		tabbedtui.WithTabStyle(ui.GetTabStyle()),
-		tabbedtui.WithActiveTabStyle(ui.GetActiveTabStyle()),
-		tabbedtui.WithTabGapStyle(ui.GetTabGapStyle()),
-		tabbedtui.WithHelpStyle(ui.GetHelpIndicatorStyle()),
-		tabbedtui.WithTabBarHeight(ui.TabBarHeight),
-		tabbedtui.WithFooterHelpHeight(ui.FooterHelpHeight),
+		tabbedtui.WithStyles(ui.GetTabbedStyles()),
 	)
 
 	// Now create the Bubble Tea program with config

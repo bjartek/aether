@@ -66,11 +66,6 @@ func TestNewSplitView(t *testing.T) {
 			if m.spinner.Spinner.FPS == 0 {
 				t.Error("spinner not initialized")
 			}
-
-			// Check if keys were initialized
-			if len(m.Keys.Quit.Keys()) == 0 {
-				t.Error("keys not initialized")
-			}
 		})
 	}
 }

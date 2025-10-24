@@ -15,6 +15,7 @@ type HelpModel struct {
 }
 
 // NewHelpModel creates a new help model that only shows when toggled
+// Styles will be set by the parent TabbedModel from its Styles configuration
 func NewHelpModel() HelpModel {
 	h := help.New()
 	h.ShowAll = true

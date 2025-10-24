@@ -6,6 +6,7 @@ import (
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/splitview"
+	"github.com/bjartek/aether/pkg/tabbedtui"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
@@ -144,7 +145,7 @@ func (ev *EventsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ev.showRawAddresses = !ev.showRawAddresses
 			// Refresh all rows to update table and detail
 			ev.refreshAllRows()
-			return ev, InputHandled()
+			return ev, tabbedtui.InputHandled()
 		}
 	}
 

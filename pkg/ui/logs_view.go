@@ -6,6 +6,7 @@ import (
 
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/logs"
+	"github.com/bjartek/aether/pkg/tabbedtui"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -170,13 +171,13 @@ func (lv *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, lv.keys.Filter):
 				lv.filterMode = true
 				lv.filterInput.Focus()
-				return lv, InputHandled()
+				return lv, tabbedtui.InputHandled()
 			case key.Matches(msg, lv.keys.Cancel) && lv.filterText != "":
 				lv.filterText = ""
 				lv.filterInput.SetValue("")
 				lv.applyFilter()
 				lv.updateViewport()
-				return lv, InputHandled()
+				return lv, tabbedtui.InputHandled()
 			}
 		}
 	}
