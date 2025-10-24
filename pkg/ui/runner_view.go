@@ -4,33 +4,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/chroma"
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
+	"github.com/bjartek/aether/pkg/splitview"
 	"github.com/bjartek/overflow/v2"
-	"github.com/bjartek/underflow"
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/onflow/cadence/ast"
 	"github.com/onflow/cadence/parser"
 	"github.com/onflow/cadence/sema"
+	"github.com/rs/zerolog"
 )
 
-// ScriptType represents whether a file is a script or transaction
+// ScriptType represents the type of script
 type ScriptType string
 
 const (
-	TypeScript      ScriptType = "Script"
-	TypeTransaction ScriptType = "Transaction"
+	TypeScript      ScriptType = "script"
+	TypeTransaction ScriptType = "transaction"
 )
 
 // ExecutionCompleteMsg is sent when script/transaction execution completes
@@ -118,8 +117,8 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 			key.WithHelp("s", "save config"),
 		),
 		Refresh: key.NewBinding(
-			key.WithKeys("ctrl+l"),
-			key.WithHelp("ctrl+l", "refresh list"),
+			key.WithKeys("ctrl+l", "x"),
+			key.WithHelp("ctrl+l/x", "refresh list"),
 		),
 		ToggleFullDetail: key.NewBinding(
 			key.WithKeys("enter", " "),
@@ -141,54 +140,43 @@ func (k RunnerKeyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// RunnerView manages the script/transaction runner interface
+// RunnerView is the splitview-based implementation for script/transaction runner
 type RunnerView struct {
-	table               table.Model
-	codeViewport        viewport.Model
-	detailViewport      viewport.Model // Viewport for full detail mode
-	splitDetailViewport viewport.Model // Viewport for split view detail panel
-	keys                RunnerKeyMap
-	ready               bool
-	scripts             []ScriptFile
-	width               int
-	height              int
-	tableWidthPercent   int  // Configurable table width percentage
-	detailWidthPercent  int  // Configurable detail width percentage
-	codeWrapWidth       int  // Configurable code wrap width (0 = no wrap)
-	fullDetailMode      bool // Toggle between split and full-screen detail view
-	accountRegistry     *aether.AccountRegistry
-	inputFields         []InputField
-	activeFieldIndex    int
-	editingField        bool
-	availableSigners    []string // List of available signer names
-	overflow            *overflow.OverflowState
-	spinner             spinner.Model
-	isExecuting         bool
-	executionResult     string
-	executionError      error
-	savingConfig        bool            // True when showing save dialog
-	saveInput           textinput.Model // Input for save filename
-	saveError           string          // Error message from last save attempt
+	sv               *splitview.SplitViewModel
+	keys             RunnerKeyMap
+	width            int
+	height           int
+	scripts          []ScriptFile
+	overflow         *overflow.OverflowState
+	accountRegistry  *aether.AccountRegistry
+	executionResult  string
+	executionError   error
+	inputFields      []InputField
+	activeFieldIndex int
+	editingField     bool
+	availableSigners []string
+	savingConfig     bool
+	saveInput        textinput.Model
+	saveError        string
+	executing        bool // True when script is executing
+	lastSelectedIdx  int  // Track last selected index to detect navigation
+	logger           zerolog.Logger
 }
 
-// NewRunnerView creates a new runner view with default settings
-func NewRunnerView() *RunnerView {
-	return NewRunnerViewWithConfig(nil)
-}
-
-// NewRunnerViewWithConfig creates a new runner view with configuration
-func NewRunnerViewWithConfig(cfg *config.Config) *RunnerView {
-	columns := []table.Column{
-		{Title: "Type", Width: 12},
-		{Title: "Name", Width: 25},
-		{Title: "Network", Width: 10},
+// NewRunnerViewWithConfig creates a new v2 runner view
+func NewRunnerViewWithConfig(cfg *config.Config, logger zerolog.Logger) *RunnerView {
+	// Fallback to defaults when cfg is nil
+	if cfg == nil {
+		cfg = config.DefaultConfig()
 	}
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithFocused(true),
-		table.WithHeight(10),
-	)
 
+	columns := []splitview.ColumnConfig{
+		{Name: "Type", Width: 8},
+		{Name: "Name", Width: 40},
+		{Name: "Network", Width: 12},
+	}
+
+	// Table styles
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
@@ -200,23 +188,13 @@ func NewRunnerViewWithConfig(cfg *config.Config) *RunnerView {
 		Background(solarYellow).
 		Bold(false)
 
-	t.SetStyles(s)
-
-	// Create viewport for code display
-	vp := viewport.New(0, 0)
-	vp.Style = lipgloss.NewStyle()
-
-	// Create viewport for full detail mode
-	detailVp := viewport.New(0, 0)
-	detailVp.Style = lipgloss.NewStyle()
-
-	// Create viewport for split view detail panel
-	splitVp := viewport.New(0, 0)
-	splitVp.Style = lipgloss.NewStyle()
-
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	// Build splitview with options
+	tableSplitPercent := float64(cfg.UI.Layout.Runner.TableWidthPercent) / 100.0
+	sv := splitview.NewSplitView(
+		columns,
+		splitview.WithTableStyles(s),
+		splitview.WithTableSplitPercent(tableSplitPercent),
+	)
 
 	// Create save input
 	saveInput := textinput.New()
@@ -224,206 +202,681 @@ func NewRunnerViewWithConfig(cfg *config.Config) *RunnerView {
 	saveInput.CharLimit = 50
 	saveInput.Width = 40
 
-	// Get width percentages from config
-	// Use config defaults, or fallback to DefaultConfig if no config provided
-	if cfg == nil {
-		cfg = config.DefaultConfig()
-	}
-
-	tableWidthPercent := cfg.UI.Layout.Runner.TableWidthPercent
-	detailWidthPercent := cfg.UI.Layout.Runner.DetailWidthPercent
-	codeWrapWidth := cfg.UI.Layout.Runner.CodeWrapWidth
-
 	rv := &RunnerView{
-		table:               t,
-		codeViewport:        vp,
-		detailViewport:      detailVp,
-		splitDetailViewport: splitVp,
-		keys:                DefaultRunnerKeyMap(),
-		ready:               false,
-		scripts:             make([]ScriptFile, 0),
-		inputFields:         make([]InputField, 0),
-		activeFieldIndex:    0,
-		editingField:        false,
-		tableWidthPercent:   tableWidthPercent,
-		detailWidthPercent:  detailWidthPercent,
-		codeWrapWidth:       codeWrapWidth,
-		fullDetailMode:      false,
-		spinner:             sp,
-		isExecuting:         false,
-		savingConfig:        false,
-		saveInput:           saveInput,
+		sv:               sv,
+		keys:             DefaultRunnerKeyMap(),
+		scripts:          make([]ScriptFile, 0),
+		inputFields:      make([]InputField, 0),
+		activeFieldIndex: 0,
+		editingField:     false,
+		saveInput:        saveInput,
+		lastSelectedIdx:  -1,
+		logger:           logger,
 	}
-
-	// Scan for scripts and transactions
-	rv.scanFiles()
 
 	return rv
 }
 
-// findCdcFile searches for a .cdc file by name in common directories
-// The name can be a simple name like "message" or a nested path like "nested/message"
-func (rv *RunnerView) findCdcFile(name string, scriptType ScriptType) string {
-	// Determine which directory to search based on script type
-	var dirs []string
-	if scriptType == TypeScript {
-		dirs = []string{"scripts", "cadence/scripts"}
-	} else {
-		dirs = []string{"transactions", "cadence/transactions"}
+// Init implements tea.Model
+func (rv *RunnerView) Init() tea.Cmd {
+	// Scan for script and transaction files
+	rv.scanFiles()
+
+	// Populate splitview with discovered scripts
+	for _, script := range rv.scripts {
+		rv.addScriptRow(script)
 	}
 
-	// Name may already include path like "nested/message", just add .cdc extension
-	filename := name + ".cdc"
-	for _, dir := range dirs {
-		path := filepath.Join(dir, filename)
-		if _, err := os.Stat(path); err == nil {
-			return path
+	rv.logger.Debug().
+		Int("scriptsFound", len(rv.scripts)).
+		Msg("RunnerView initialized with scripts")
+
+	return rv.sv.Init()
+}
+
+// Update implements tea.Model
+func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	rv.logger.Debug().Str("method", "Update").Interface("msgType", msg).Msg("RunnerView.Update called")
+
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		rv.width = msg.Width
+		rv.height = msg.Height
+		rv.logger.Debug().
+			Int("width", msg.Width).
+			Int("height", msg.Height).
+			Msg("WindowSizeMsg received")
+
+	case RescanFilesMsg:
+		// Rescan files and rebuild rows
+		rv.logger.Info().Msg("RescanFilesMsg received - rescanning files")
+		rv.scanFiles()
+
+		// Rebuild splitview rows
+		rows := make([]splitview.RowData, 0)
+		for _, script := range rv.scripts {
+			typeStr := "Script"
+			if script.Type == TypeTransaction {
+				typeStr = "Tx"
+			}
+			if script.IsFromJSON && script.Config != nil {
+				typeStr += "*"
+			}
+			row := table.Row{typeStr, script.Name, script.Network}
+			content := rv.buildScriptDetail(script)
+			codeToShow := script.HighlightedCode
+			rows = append(rows, splitview.NewRowData(row).WithContent(content).WithCode(codeToShow))
+		}
+		rv.sv.SetRows(rows)
+		
+		rv.logger.Info().
+			Int("scriptsFound", len(rv.scripts)).
+			Msg("Rescan complete")
+		
+		return rv, nil
+
+	case tea.KeyMsg:
+		rv.logger.Debug().
+			Str("key", msg.String()).
+			Bool("editingField", rv.editingField).
+			Bool("savingConfig", rv.savingConfig).
+			Bool("isFullscreen", rv.sv.IsFullscreen()).
+			Int("inputFieldsCount", len(rv.inputFields)).
+			Msg("KeyPress received")
+
+		// Handle save dialog input
+		if rv.savingConfig {
+			switch {
+			case key.Matches(msg, rv.keys.Enter):
+				// Save config
+				if rv.saveInput.Value() != "" {
+					configName := rv.saveInput.Value()
+					rv.saveError = rv.saveConfig(configName)
+					if rv.saveError == "" {
+						rv.savingConfig = false
+						rv.saveInput.SetValue("")
+						
+						rv.logger.Info().
+							Str("configName", configName).
+							Msg("Config saved successfully - reloading files")
+						
+						// Show success message
+						rv.executionResult = fmt.Sprintf("Config saved as '%s.json'", configName)
+						rv.executionError = nil
+						
+						// Reload files from filesystem to pick up new config
+						oldCount := len(rv.scripts)
+						rv.scanFiles()
+						
+						rv.logger.Info().
+							Int("oldCount", oldCount).
+							Int("newCount", len(rv.scripts)).
+							Msg("Files reloaded after save")
+						
+						// Rebuild splitview rows
+						rows := make([]splitview.RowData, 0)
+						for i, script := range rv.scripts {
+							typeStr := "Script"
+							if script.Type == TypeTransaction {
+								typeStr = "Tx"
+							}
+							if script.IsFromJSON && script.Config != nil {
+								typeStr += "*"
+							}
+							row := table.Row{typeStr, script.Name, script.Network}
+							content := rv.buildScriptDetail(script)
+							codeToShow := script.HighlightedCode
+							rows = append(rows, splitview.NewRowData(row).WithContent(content).WithCode(codeToShow))
+							
+							rv.logger.Debug().
+								Int("index", i).
+								Str("type", typeStr).
+								Str("name", script.Name).
+								Str("network", script.Network).
+								Bool("hasConfig", script.Config != nil).
+								Bool("isFromJSON", script.IsFromJSON).
+								Msg("Built row")
+						}
+						
+						rv.logger.Info().
+							Int("rowsBuilt", len(rows)).
+							Msg("Setting rows in splitview")
+						
+						rv.sv.SetRows(rows)
+						
+						rv.logger.Info().Msg("Rows set successfully")
+						
+						// Refresh detail to show success message
+						selectedIdx := rv.sv.GetCursor()
+						if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+							rv.logger.Info().
+								Int("selectedIdx", selectedIdx).
+								Str("scriptName", rv.scripts[selectedIdx].Name).
+								Msg("Refreshing detail content")
+							rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+						}
+					} else {
+						rv.logger.Error().
+							Str("error", rv.saveError).
+							Msg("Failed to save config")
+					}
+				}
+				// Return with a command to force re-render
+				return rv, tea.Batch()
+
+			case msg.Type == tea.KeyEsc:
+				// Cancel save
+				rv.savingConfig = false
+				rv.saveInput.SetValue("")
+				rv.saveError = ""
+				return rv, nil
+
+			default:
+				// Update save input
+				var cmd tea.Cmd
+				rv.saveInput, cmd = rv.saveInput.Update(msg)
+				
+				// Refresh detail content to show the updated input
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				
+				return rv, cmd
+			}
+		}
+
+		// Handle form editing (when actively typing in a field)
+		if rv.editingField && len(rv.inputFields) > 0 {
+			switch {
+			case msg.Type == tea.KeyEsc:
+				// Exit editing mode, blur field, stay in field navigation mode
+				rv.editingField = false
+				rv.inputFields[rv.activeFieldIndex].Input.Blur()
+				// Refresh detail to update UI
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				return rv, InputHandled()
+
+			case key.Matches(msg, rv.keys.Enter):
+				// Finish editing current field and move to next field
+				rv.inputFields[rv.activeFieldIndex].Input.Blur()
+				if rv.activeFieldIndex < len(rv.inputFields)-1 {
+					rv.activeFieldIndex++
+					rv.inputFields[rv.activeFieldIndex].Input.Focus()
+					rv.editingField = true
+				} else {
+					// Last field - exit editing mode
+					rv.editingField = false
+				}
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				return rv, InputHandled()
+
+			case msg.Type == tea.KeyTab:
+				// Tab: finish editing and move to next field
+				rv.inputFields[rv.activeFieldIndex].Input.Blur()
+				rv.activeFieldIndex = (rv.activeFieldIndex + 1) % len(rv.inputFields)
+				rv.inputFields[rv.activeFieldIndex].Input.Focus()
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				return rv, InputHandled()
+
+			case msg.Type == tea.KeyShiftTab:
+				// Shift-Tab: finish editing and move to previous field
+				rv.inputFields[rv.activeFieldIndex].Input.Blur()
+				rv.activeFieldIndex = (rv.activeFieldIndex - 1 + len(rv.inputFields)) % len(rv.inputFields)
+				rv.inputFields[rv.activeFieldIndex].Input.Focus()
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				return rv, InputHandled()
+
+			default:
+				// Update active input field
+				var cmd tea.Cmd
+				rv.inputFields[rv.activeFieldIndex].Input, cmd = rv.inputFields[rv.activeFieldIndex].Input.Update(msg)
+
+				// Refresh detail content to show the updated input
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+
+				return rv, cmd
+			}
+		}
+
+		// Handle field navigation (when in fullscreen with fields but not editing)
+		if !rv.editingField && len(rv.inputFields) > 0 && rv.sv.IsFullscreen() {
+			switch {
+			case msg.Type == tea.KeyTab:
+				// Tab: move to next field
+				rv.activeFieldIndex = (rv.activeFieldIndex + 1) % len(rv.inputFields)
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				return rv, InputHandled()
+
+			case msg.Type == tea.KeyShiftTab:
+				// Shift-Tab: move to previous field
+				rv.activeFieldIndex = (rv.activeFieldIndex - 1 + len(rv.inputFields)) % len(rv.inputFields)
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				return rv, InputHandled()
+
+			case key.Matches(msg, rv.keys.Enter):
+				// Enter: start editing the current field
+				rv.editingField = true
+				rv.inputFields[rv.activeFieldIndex].Input.Focus()
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				return rv, InputHandled()
+
+			case msg.Type == tea.KeyEsc:
+				// Esc: clear input fields and allow viewport scrolling
+				rv.inputFields = make([]InputField, 0)
+				rv.editingField = false
+				rv.activeFieldIndex = 0
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				// Don't return InputHandled - let splitview handle scrolling
+				_, cmd := rv.sv.Update(msg)
+				return rv, cmd
+			}
+		}
+
+		// Handle refresh
+		if key.Matches(msg, rv.keys.Refresh) {
+			rv.logger.Info().Msg("Refresh triggered - rescanning files")
+			rv.scanFiles()
+
+			// Rebuild splitview rows
+			rows := make([]splitview.RowData, 0)
+			for _, script := range rv.scripts {
+				// Type: "Script" or "Tx", with "*" if prefilled from config
+				typeStr := "Script"
+				if script.Type == TypeTransaction {
+					typeStr = "Tx"
+				}
+				if script.IsFromJSON && script.Config != nil {
+					typeStr += "*"
+				}
+
+				// Use script.Name which contains relative path without .cdc extension
+				row := table.Row{typeStr, script.Name, script.Network}
+				content := rv.buildScriptDetail(script)
+				codeToShow := script.HighlightedCode
+				rows = append(rows, splitview.NewRowData(row).WithContent(content).WithCode(codeToShow))
+			}
+			rv.sv.SetRows(rows)
+			
+			rv.logger.Info().
+				Int("scriptsFound", len(rv.scripts)).
+				Msg("Refresh complete")
+			
+			return rv, InputHandled()
+		}
+
+		// Handle save config (only when not editing)
+		if key.Matches(msg, rv.keys.Save) && rv.sv.IsFullscreen() && !rv.editingField {
+			rv.savingConfig = true
+			rv.saveInput.Focus()
+			rv.saveError = ""
+			
+			// Refresh detail content to show save dialog
+			selectedIdx := rv.sv.GetCursor()
+			if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+				rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+			}
+			return rv, nil
+		}
+
+		// Handle enter/space to toggle fullscreen and build forms
+		if key.Matches(msg, rv.keys.Enter) || key.Matches(msg, rv.keys.ToggleFullDetail) {
+			wasFullscreen := rv.sv.IsFullscreen()
+
+			// Build input fields BEFORE toggling fullscreen
+			if !wasFullscreen {
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					script := rv.scripts[selectedIdx]
+					rv.buildInputFields(script)
+					rv.tryLoadConfigFromJSON(script)
+					
+					// Clear any previous execution results when entering fullscreen
+					rv.executionResult = ""
+					rv.executionError = nil
+					rv.executing = false
+					
+					// Start in navigation mode (not editing) so user can press 'r' to run
+					// or Enter to start editing the first field
+					rv.activeFieldIndex = 0
+					rv.editingField = false
+					if len(rv.inputFields) > 0 {
+						// Focus but don't start editing - user presses Enter to edit
+						rv.inputFields[0].Input.Focus()
+					}
+				}
+			}
+
+			// Pass to splitview to toggle fullscreen - it will re-render with fields
+			_, cmd := rv.sv.Update(msg)
+			cmds = append(cmds, cmd)
+
+			// After entering fullscreen, refresh detail content to show input fields
+			if !wasFullscreen && rv.sv.IsFullscreen() {
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+			}
+
+			// Clear input fields and execution results when exiting fullscreen
+			if wasFullscreen && !rv.sv.IsFullscreen() {
+				rv.inputFields = make([]InputField, 0)
+				rv.editingField = false
+				rv.executionResult = ""
+				rv.executionError = nil
+				rv.executing = false
+				
+				// Refresh detail content to show cleared state
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+			}
+
+			return rv, tea.Batch(cmds...)
+		}
+
+		// Handle 'r' key to run selected script/transaction (only when not actively editing)
+		if key.Matches(msg, rv.keys.Run) && !rv.editingField {
+			rv.logger.Debug().
+				Bool("hasOverflow", rv.overflow != nil).
+				Int("selectedIdx", rv.sv.GetCursor()).
+				Int("scriptsCount", len(rv.scripts)).
+				Bool("isFullscreen", rv.sv.IsFullscreen()).
+				Int("inputFieldsCount", len(rv.inputFields)).
+				Bool("editingField", rv.editingField).
+				Msg("Run key matched!")
+
+			if rv.overflow != nil {
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					script := rv.scripts[selectedIdx]
+					rv.logger.Info().
+						Str("scriptName", script.Name).
+						Str("scriptType", string(script.Type)).
+						Msg("Executing script/transaction")
+
+					// Build input fields if not already built
+					if len(rv.inputFields) == 0 {
+						rv.buildInputFields(script)
+						rv.tryLoadConfigFromJSON(script)
+					}
+
+					rv.executionResult = ""
+					rv.executionError = nil
+					rv.executing = true
+					// Refresh to show spinner
+					rv.refreshDetailContent(selectedIdx, script)
+					return rv, rv.executeScript(script)
+				} else {
+					rv.logger.Warn().Msg("No script selected or invalid index")
+				}
+			} else {
+				rv.logger.Warn().Msg("Overflow not initialized")
+			}
+		}
+
+	case ExecutionCompleteMsg:
+		rv.logger.Info().
+			Bool("hasError", msg.Error != nil).
+			Bool("isScript", msg.IsScript).
+			Msg("ExecutionCompleteMsg received")
+
+		// Clear executing flag
+		rv.executing = false
+
+		if msg.Error != nil {
+			rv.executionError = msg.Error
+			rv.executionResult = ""
+		} else {
+			rv.executionError = nil
+			// Format result based on type with rich formatting
+			if msg.IsScript && msg.ScriptResult != nil {
+				if msg.ScriptResult.Err != nil {
+					rv.executionError = msg.ScriptResult.Err
+					rv.executionResult = ""
+				} else {
+					rv.executionResult = rv.formatScriptResult(msg.ScriptResult)
+				}
+			} else if msg.TxResult != nil {
+				if msg.TxResult.Err != nil {
+					rv.executionError = msg.TxResult.Err
+					rv.executionResult = ""
+				} else {
+					rv.executionResult = rv.formatTransactionResult(msg.TxResult)
+				}
+			} else {
+				rv.executionResult = "✓ Execution successful"
+			}
+		}
+
+		// Refresh the current row to show results inline
+		selectedIdx := rv.sv.GetCursor()
+		if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+			script := rv.scripts[selectedIdx]
+			rv.refreshDetailContent(selectedIdx, script)
+		}
+		return rv, nil
+	}
+
+	// If we get here, the message is being passed to splitview
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		rv.logger.Debug().
+			Str("key", keyMsg.String()).
+			Msg("Passing key message to splitview")
+	}
+
+	_, cmd := rv.sv.Update(msg)
+	cmds = append(cmds, cmd)
+	
+	// Check if cursor position changed after splitview update - clear execution results when navigating
+	currentIdx := rv.sv.GetCursor()
+	if currentIdx != rv.lastSelectedIdx && rv.lastSelectedIdx != -1 {
+		rv.logger.Debug().
+			Int("oldIdx", rv.lastSelectedIdx).
+			Int("newIdx", currentIdx).
+			Msg("Cursor changed - clearing execution results")
+		rv.executionResult = ""
+		rv.executionError = nil
+		rv.executing = false
+		
+		// Refresh detail content to show cleared state
+		if currentIdx >= 0 && currentIdx < len(rv.scripts) {
+			rv.refreshDetailContent(currentIdx, rv.scripts[currentIdx])
 		}
 	}
+	rv.lastSelectedIdx = currentIdx
+	
+	return rv, tea.Batch(cmds...)
+}
 
+// View implements tea.Model
+func (rv *RunnerView) View() string {
+	rv.logger.Debug().Str("method", "View").Msg("RunnerView.View called")
+
+	view := rv.sv.View()
+
+	rv.logger.Debug().
+		Str("method", "View").
+		Str("component", "runner").
+		Int("parentWidth", rv.width).
+		Int("parentHeight", rv.height).
+		Int("svWidth", rv.sv.GetWidth()).
+		Int("svHeight", rv.sv.GetHeight()).
+		Int("svTableWidth", rv.sv.GetTableWidth()).
+		Int("svDetailWidth", rv.sv.GetDetailWidth()).
+		Int("viewLength", len(view)).
+		Bool("isFullscreen", rv.sv.IsFullscreen()).
+		Int("inputFieldsCount", len(rv.inputFields)).
+		Int("scriptsCount", len(rv.scripts)).
+		Msg("RunnerView.View rendered")
+	return view
+}
+
+// Name implements TabbedModel interface
+func (rv *RunnerView) Name() string {
+	return "Runner"
+}
+
+// KeyMap implements TabbedModel interface - combines runner and splitview keys
+func (rv *RunnerView) KeyMap() help.KeyMap {
+	return NewCombinedKeyMap(rv.keys, rv.sv.KeyMap())
+}
+
+// FooterView implements TabbedModel interface - results shown inline in detail
+func (rv *RunnerView) FooterView() string {
 	return ""
 }
 
-// scanFiles scans for .cdc files in scripts and transactions folders
-func (rv *RunnerView) scanFiles() {
-	var files []ScriptFile
+// IsCapturingInput implements TabbedModel interface
+func (rv *RunnerView) IsCapturingInput() bool {
+	return rv.editingField || rv.savingConfig
+}
 
-	// Paths to scan
-	scanPaths := []struct {
-		dir string
-		typ ScriptType
-	}{
-		{"scripts", TypeScript},
-		{"transactions", TypeTransaction},
-		{"cadence/scripts", TypeScript},
-		{"cadence/transactions", TypeTransaction},
+// SetOverflow sets the overflow state for script execution
+func (rv *RunnerView) SetOverflow(o *overflow.OverflowState) {
+	rv.overflow = o
+}
+
+// SetAccountRegistry sets the account registry for signer name resolution
+func (rv *RunnerView) SetAccountRegistry(registry *aether.AccountRegistry) {
+	rv.accountRegistry = registry
+	// Update available signers list from registry
+	if registry != nil {
+		rv.availableSigners = registry.GetAllNames()
+	}
+}
+
+// AddScript adds a script to the runner view (called externally like AddTransaction)
+func (rv *RunnerView) AddScript(script ScriptFile) {
+	// Store script data
+	rv.scripts = append(rv.scripts, script)
+
+	// Parse the script to extract parameters and signers
+	rv.parseScriptFile(&script)
+
+	// Add to splitview
+	rv.addScriptRow(script)
+
+	rv.logger.Debug().
+		Str("scriptName", script.Name).
+		Str("scriptType", string(script.Type)).
+		Int("totalScripts", len(rv.scripts)).
+		Msg("Script added to runner view")
+}
+
+// formatValue recursively formats a value with proper indentation
+func (rv *RunnerView) formatValue(value interface{}, indent string) string {
+	var b strings.Builder
+
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if len(v) == 0 {
+			return "{}"
+		}
+		first := true
+		for key, val := range v {
+			if !first {
+				b.WriteString("\n")
+			}
+			first = false
+			b.WriteString(fmt.Sprintf("%s%s: ", indent, key))
+			b.WriteString(rv.formatValue(val, indent+"  "))
+		}
+	case []interface{}:
+		if len(v) == 0 {
+			return "[]"
+		}
+		for i, val := range v {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(fmt.Sprintf("%s[%d]: ", indent, i))
+			b.WriteString(rv.formatValue(val, indent+"  "))
+		}
+	default:
+		// Underflow handles timestamps and addresses automatically
+		b.WriteString(fmt.Sprintf("%v", v))
 	}
 
-	for _, sp := range scanPaths {
-		if _, err := os.Stat(sp.dir); os.IsNotExist(err) {
-			continue
-		}
+	return b.String()
+}
 
-		err := filepath.Walk(sp.dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
+// formatScriptResult formats the script result for display
+func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) string {
+	if result == nil {
+		return "✓ Script executed successfully"
+	}
+
+	var b strings.Builder
+
+	b.WriteString("✓ Script executed successfully\n\n")
+	
+	// Show the Output field which uses underflow options from overflow
+	if result.Output != nil {
+		b.WriteString("Output:\n")
+		b.WriteString(rv.formatValue(result.Output, ""))
+	}
+
+	return b.String()
+}
+
+// formatTransactionResult formats the transaction result for display
+func (rv *RunnerView) formatTransactionResult(result *overflow.OverflowResult) string {
+	if result == nil {
+		return "✓ Transaction executed successfully"
+	}
+
+	var b strings.Builder
+
+	b.WriteString("✓ Transaction executed successfully\n\n")
+	b.WriteString(fmt.Sprintf("Transaction ID: %s\n", result.Id))
+
+	// Show events if any
+	if len(result.Events) > 0 {
+		b.WriteString(fmt.Sprintf("\nEvents (%d):\n", len(result.Events)))
+		count := 0
+		for eventName, eventList := range result.Events {
+			if count >= 5 {
+				b.WriteString(fmt.Sprintf("  ... and %d more event types\n", len(result.Events)-5))
+				break
 			}
-			if info.IsDir() {
-				return nil
-			}
-
-			ext := filepath.Ext(path)
-
-			// Handle JSON configuration files
-			if ext == ".json" {
-				config, err := flow.LoadTransactionConfig(path)
-				if err != nil {
-					// Skip malformed JSON files
-					return nil
-				}
-
-				// Find the referenced .cdc file
-				cdcPath := rv.findCdcFile(config.Name, sp.typ)
-				if cdcPath == "" {
-					// Referenced .cdc file not found, skip
-					return nil
-				}
-
-				code, err := os.ReadFile(cdcPath)
-				if err != nil {
-					return nil
-				}
-
-				// Detect network from config name
-				configNetwork := rv.detectNetwork(config.Name)
-				displayName := strings.TrimSuffix(filepath.Base(path), ".json") + " (config)"
-
-				codeStr := string(code)
-				script := ScriptFile{
-					Name:            displayName,
-					Path:            path,
-					Type:            sp.typ,
-					Code:            codeStr,
-					HighlightedCode: chroma.HighlightCadence(codeStr), // Highlight WITHOUT wrapping - let lipgloss wrap
-					Config:          config,
-					IsFromJSON:      true,
-					Network:         configNetwork,
-				}
-
-				// Parse parameters and signers from the .cdc file
-				rv.parseScriptFile(&script)
-
-				files = append(files, script)
-				return nil
-			}
-			// Handle .cdc files
-			if ext == ".cdc" {
-				// Skip test files
-				if strings.Contains(path, "_test.cdc") {
-					return nil
-				}
-
-				code, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-
-				// Calculate relative path from base directory
-				// This preserves nested folder structure (e.g., nested/message.cdc -> nested/message)
-				relPath, err := filepath.Rel(sp.dir, path)
-				if err != nil {
-					// Fallback to basename if we can't get relative path
-					relPath = filepath.Base(path)
-				}
-				// Remove .cdc extension to get the name overflow expects
-				name := strings.TrimSuffix(relPath, ".cdc")
-
-				// Detect network from filename suffix (use base filename for detection)
-				basename := filepath.Base(path)
-				basenameWithoutExt := strings.TrimSuffix(basename, ".cdc")
-				network := rv.detectNetwork(basenameWithoutExt)
-				// Remove network suffix from display name if present
-				displayName := rv.removeNetworkSuffix(name)
-
-				codeStr := string(code)
-				script := ScriptFile{
-					Name:            displayName,
-					Path:            path,
-					Type:            sp.typ,
-					Code:            codeStr,
-					HighlightedCode: chroma.HighlightCadence(codeStr), // Highlight WITHOUT wrapping - let lipgloss wrap
-					IsFromJSON:      false,
-					Network:         network,
-				}
-
-				// Parse parameters and signers
-				rv.parseScriptFile(&script)
-
-				files = append(files, script)
-				return nil
-			}
-			return nil
-		})
-
-		if err != nil {
-			// Log error but continue
-			continue
+			b.WriteString(fmt.Sprintf("  • %s (%d)\n", eventName, len(eventList)))
+			count++
 		}
 	}
 
-	// Sort by name
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].Name < files[j].Name
-	})
-
-	rv.scripts = files
-	rv.refreshTable()
-
-	// Setup input fields for first script if any
-	if len(rv.scripts) > 0 {
-		rv.setupInputFields(rv.scripts[0])
-		rv.updateCodeViewport(rv.scripts[0])
-	}
+	return b.String()
 }
 
 // detectNetwork determines the network from a filename
@@ -436,9 +889,6 @@ func (rv *RunnerView) detectNetwork(filename string) string {
 	} else if strings.HasSuffix(filename, ".mainnet") {
 		return "mainnet"
 	}
-
-	// If no suffix, check if code contains network-specific imports (addresses)
-	// For now, return "any" - we could enhance this later
 	return "any"
 }
 
@@ -450,6 +900,655 @@ func (rv *RunnerView) removeNetworkSuffix(filename string) string {
 		}
 	}
 	return filename
+}
+
+// refreshDetailContent updates the detail content for the current row
+func (rv *RunnerView) refreshDetailContent(idx int, script ScriptFile) {
+	content := rv.buildScriptDetail(script)
+	rows := rv.sv.GetRows()
+	if idx < len(rows) {
+		row := rows[idx]
+		row.Content = content
+		rows[idx] = row
+		rv.sv.SetRows(rows)
+	}
+}
+
+// buildInputFields creates input fields for the selected script
+func (rv *RunnerView) buildInputFields(script ScriptFile) {
+	rv.logger.Debug().
+		Str("scriptName", script.Name).
+		Str("scriptType", string(script.Type)).
+		Int("signers", script.Signers).
+		Int("parameters", len(script.Parameters)).
+		Msg("buildInputFields called")
+
+	rv.inputFields = make([]InputField, 0)
+
+	// Add signer fields for transactions
+	if script.Type == TypeTransaction && len(script.SignerParams) > 0 {
+		for _, signerParam := range script.SignerParams {
+			input := textinput.New()
+			input.Placeholder = "account name"
+			input.Width = 30
+
+			// Use the actual parameter name from the prepare block
+			label := signerParam.Name
+
+			rv.inputFields = append(rv.inputFields, InputField{
+				Label:    label,
+				Input:    input,
+				IsSigner: true,
+			})
+		}
+	}
+
+	// Add parameter fields
+	for _, param := range script.Parameters {
+		input := textinput.New()
+		input.Placeholder = param.Type
+		input.Width = 30
+
+		rv.inputFields = append(rv.inputFields, InputField{
+			Label:    param.Name,
+			Input:    input,
+			IsSigner: false,
+		})
+	}
+
+	rv.activeFieldIndex = 0
+	if len(rv.inputFields) > 0 {
+		rv.inputFields[0].Input.Focus()
+	}
+
+	rv.logger.Debug().
+		Int("totalFields", len(rv.inputFields)).
+		Msg("buildInputFields completed")
+
+	// Pre-populate from Config if this script is from a JSON file
+	if script.Config != nil {
+		// Load signers from config
+		signerIdx := 0
+		for i, field := range rv.inputFields {
+			if field.IsSigner && signerIdx < len(script.Config.Signers) {
+				rv.inputFields[i].Input.SetValue(script.Config.Signers[signerIdx])
+				signerIdx++
+			}
+		}
+
+		// Load arguments from config
+		for i, field := range rv.inputFields {
+			if !field.IsSigner {
+				if val, exists := script.Config.Arguments[field.Label]; exists {
+					rv.inputFields[i].Input.SetValue(fmt.Sprintf("%v", val))
+				}
+			}
+		}
+	}
+}
+
+// saveConfig saves the current input field values using Flow format
+func (rv *RunnerView) saveConfig(configName string) string {
+	selectedIdx := rv.sv.GetCursor()
+	if selectedIdx < 0 || selectedIdx >= len(rv.scripts) {
+		return "No script selected"
+	}
+
+	script := rv.scripts[selectedIdx]
+
+	// Build config from current input fields using Flow format
+	config := &flow.TransactionConfig{
+		Name:      script.Name,
+		Signers:   make([]string, 0),
+		Arguments: make(map[string]interface{}),
+	}
+
+	// Collect signers
+	for _, field := range rv.inputFields {
+		if field.IsSigner && field.Input.Value() != "" {
+			config.Signers = append(config.Signers, field.Input.Value())
+		}
+	}
+
+	// Collect arguments
+	for _, field := range rv.inputFields {
+		if !field.IsSigner && field.Input.Value() != "" {
+			config.Arguments[field.Label] = field.Input.Value()
+		}
+	}
+
+	// Determine save path
+	var dir string
+	if script.IsFromJSON {
+		// If loaded from JSON, save in same directory
+		dir = filepath.Dir(script.Path)
+	} else {
+		// If .cdc file, save next to it
+		dir = filepath.Dir(script.Path)
+	}
+
+	// Add .json extension if not present
+	filename := configName
+	if !strings.HasSuffix(filename, ".json") {
+		filename = filename + ".json"
+	}
+	savePath := filepath.Join(dir, filename)
+
+	// Save using Flow format
+	if err := flow.SaveTransactionConfig(savePath, config); err != nil {
+		return fmt.Sprintf("Failed to save config: %v", err)
+	}
+
+	return "" // Success
+}
+
+// tryLoadConfigFromJSON attempts to load config from a .json file next to the .cdc file
+func (rv *RunnerView) tryLoadConfigFromJSON(script ScriptFile) {
+	// Don't try to load if this script is already from a JSON file
+	if script.IsFromJSON {
+		return
+	}
+
+	// Try to find matching .json file
+	jsonPath := strings.TrimSuffix(script.Path, ".cdc") + ".json"
+	config, err := flow.LoadTransactionConfig(jsonPath)
+	if err != nil {
+		return // No JSON file or malformed, that's okay
+	}
+
+	// Load signer values
+	signerIdx := 0
+	for i, field := range rv.inputFields {
+		if field.IsSigner && signerIdx < len(config.Signers) {
+			rv.inputFields[i].Input.SetValue(config.Signers[signerIdx])
+			signerIdx++
+		}
+	}
+
+	// Load argument values
+	for i, field := range rv.inputFields {
+		if !field.IsSigner {
+			if val, exists := config.Arguments[field.Label]; exists {
+				rv.inputFields[i].Input.SetValue(fmt.Sprintf("%v", val))
+			}
+		}
+	}
+}
+
+// executeScript runs a script or transaction asynchronously
+func (rv *RunnerView) executeScript(script ScriptFile) tea.Cmd {
+	// Capture values for async execution
+	o := rv.overflow
+
+	// Build overflow options from input fields
+	var opts []overflow.OverflowInteractionOption
+
+	// Collect signers and arguments
+	signerIndex := 0
+	for _, field := range rv.inputFields {
+		value := field.Input.Value()
+		if value == "" {
+			continue
+		}
+
+		if field.IsSigner {
+			// First signer uses WithSigner, rest use WithPayloadSigner
+			if signerIndex == 0 {
+				opts = append(opts, overflow.WithSigner(value))
+			} else {
+				opts = append(opts, overflow.WithPayloadSigner(value))
+			}
+			signerIndex++
+		} else {
+			opts = append(opts, overflow.WithArg(field.Label, value))
+		}
+	}
+
+	return func() tea.Msg {
+		if o == nil {
+			return ExecutionCompleteMsg{
+				Error: fmt.Errorf("overflow not initialized"),
+			}
+		}
+
+		// Use config.Name for execution if available (for JSON-based scripts)
+		// Otherwise use script.Name
+		scriptName := script.Name
+		if script.Config != nil {
+			scriptName = script.Config.Name
+		}
+
+		if script.Type == TypeScript {
+			// Execute script with options
+			result := o.Script(scriptName, opts...)
+			return ExecutionCompleteMsg{
+				ScriptResult: result,
+				IsScript:     true,
+				Error:        result.Err,
+			}
+		} else {
+			// Execute transaction with options
+			result := o.Tx(scriptName, opts...)
+			return ExecutionCompleteMsg{
+				TxResult: result,
+				IsScript: false,
+				Error:    result.Err,
+			}
+		}
+	}
+}
+
+// scanFiles scans for .cdc files in scripts and transactions folders
+func (rv *RunnerView) scanFiles() {
+	var files []ScriptFile
+
+	// Paths to scan
+	scriptDirs := []string{"scripts", "cadence/scripts"}
+	txDirs := []string{"transactions", "cadence/transactions"}
+
+	// Scan scripts
+	for _, dir := range scriptDirs {
+		rv.scanDirectory(dir, TypeScript, &files)
+	}
+
+	// Scan transactions
+	for _, dir := range txDirs {
+		rv.scanDirectory(dir, TypeTransaction, &files)
+	}
+
+	rv.scripts = files
+}
+
+// findCdcFile finds a .cdc file by name in the appropriate directory
+func (rv *RunnerView) findCdcFile(name string, scriptType ScriptType) string {
+	var searchDirs []string
+	if scriptType == TypeScript {
+		searchDirs = []string{"scripts", "cadence/scripts"}
+	} else {
+		searchDirs = []string{"transactions", "cadence/transactions"}
+	}
+
+	for _, dir := range searchDirs {
+		// Try with and without network suffixes
+		for _, suffix := range []string{"", ".emulator", ".testnet", ".mainnet"} {
+			path := filepath.Join(dir, name+suffix+".cdc")
+			if _, err := os.Stat(path); err == nil {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
+// scanDirectory scans a directory for .cdc and .json files
+func (rv *RunnerView) scanDirectory(dir string, scriptType ScriptType, files *[]ScriptFile) {
+	// Check if directory exists
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return
+	}
+
+	// Walk the directory
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		ext := filepath.Ext(path)
+
+		// Handle JSON configuration files
+		if ext == ".json" {
+			rv.logger.Debug().
+				Str("jsonPath", path).
+				Msg("Found JSON file")
+			
+			config, err := flow.LoadTransactionConfig(path)
+			if err != nil {
+				rv.logger.Debug().
+					Str("jsonPath", path).
+					Err(err).
+					Msg("Failed to load JSON config - skipping")
+				return nil
+			}
+
+			rv.logger.Debug().
+				Str("jsonPath", path).
+				Str("configName", config.Name).
+				Msg("Loaded JSON config - looking for .cdc file")
+
+			// Find the referenced .cdc file
+			cdcPath := rv.findCdcFile(config.Name, scriptType)
+			if cdcPath == "" {
+				rv.logger.Debug().
+					Str("jsonPath", path).
+					Str("configName", config.Name).
+					Msg("Referenced .cdc file not found - skipping JSON")
+				return nil
+			}
+			
+			rv.logger.Debug().
+				Str("jsonPath", path).
+				Str("cdcPath", cdcPath).
+				Msg("Found matching .cdc file for JSON config")
+
+			code, err := os.ReadFile(cdcPath)
+			if err != nil {
+				return nil
+			}
+
+			// Detect network from config name
+			configNetwork := rv.detectNetwork(config.Name)
+			
+			// Use JSON filename (without extension) as display name to make configs unique
+			// The actual execution name (config.Name) is stored in the Config object
+			jsonFilename := filepath.Base(path)
+			displayName := strings.TrimSuffix(jsonFilename, ".json")
+
+			codeStr := string(code)
+			script := ScriptFile{
+				Name:            displayName, // Use JSON filename for display
+				Path:            path,
+				Type:            scriptType,
+				Code:            codeStr,
+				HighlightedCode: chroma.HighlightCadence(codeStr),
+				Config:          config,
+				IsFromJSON:      true,
+				Network:         configNetwork,
+			}
+
+			// Parse parameters and signers from the .cdc file
+			rv.parseScriptFile(&script)
+
+			*files = append(*files, script)
+			return nil
+		}
+
+		// Handle .cdc files
+		if ext != ".cdc" {
+			return nil
+		}
+
+		// Skip test files
+		if strings.Contains(path, "_test.cdc") {
+			return nil
+		}
+
+		// Read file content
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		codeStr := string(content)
+
+		// Calculate relative path from base directory to preserve nested folder structure
+		relPath, err := filepath.Rel(dir, path)
+		if err != nil {
+			// Fallback to basename if we can't get relative path
+			relPath = filepath.Base(path)
+		}
+		// Remove .cdc extension to get the name overflow expects
+		name := strings.TrimSuffix(relPath, ".cdc")
+
+		// Detect network from filename suffix (use base filename for detection)
+		basename := filepath.Base(path)
+		basenameWithoutExt := strings.TrimSuffix(basename, ".cdc")
+		network := rv.detectNetwork(basenameWithoutExt)
+		// Remove network suffix from display name if present
+		displayName := rv.removeNetworkSuffix(name)
+
+		script := ScriptFile{
+			Name:            displayName,
+			Path:            path,
+			Type:            scriptType,
+			Code:            codeStr,
+			HighlightedCode: chroma.HighlightCadence(codeStr),
+			Network:         network,
+		}
+
+		// Parse parameters and signers from code
+		rv.parseScriptFile(&script)
+
+		*files = append(*files, script)
+		return nil
+	})
+}
+
+// addScriptRow adds a script to the splitview
+func (rv *RunnerView) addScriptRow(script ScriptFile) {
+	// Type: "Script" or "Tx", with "*" if prefilled from config
+	typeStr := "Script"
+	if script.Type == TypeTransaction {
+		typeStr = "Tx"
+	}
+	if script.IsFromJSON && script.Config != nil {
+		typeStr += "*"
+	}
+
+	// Use script.Name which contains relative path without .cdc extension
+	// e.g., "transfer" or "nft/create_nft"
+	row := table.Row{
+		typeStr,
+		script.Name,
+		script.Network,
+	}
+
+	// Build detail content
+	content := rv.buildScriptDetail(script)
+
+	// Use highlighted code if available, otherwise raw code
+	codeToShow := script.HighlightedCode
+	if codeToShow == "" {
+		codeToShow = script.Code
+	}
+
+	// Log row details for debugging
+	rv.logger.Debug().
+		Str("scriptName", script.Name).
+		Int("contentLength", len(content)).
+		Int("codeLength", len(codeToShow)).
+		Msg("Adding script row")
+
+	// Add to splitview with syntax-highlighted code
+	rv.sv.AddRow(splitview.NewRowData(row).WithContent(content).WithCode(codeToShow))
+}
+
+// buildScriptDetail builds the detail content for a script
+func (rv *RunnerView) buildScriptDetail(script ScriptFile) string {
+	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
+	valueStyle := lipgloss.NewStyle().Foreground(accentColor)
+
+	renderField := func(label, value string) string {
+		return fieldStyle.Render(fmt.Sprintf("%-10s", label+":")) + " " + valueStyle.Render(value) + "\n"
+	}
+
+	var details strings.Builder
+
+	typeStr := "Script"
+	if script.Type == TypeTransaction {
+		typeStr = "Transaction"
+	}
+
+	displayPath := script.Path
+	displayName := script.Name
+	details.WriteString(renderField("Type", typeStr))
+	details.WriteString(renderField("Name", displayName))
+	details.WriteString(renderField("Path", displayPath))
+	details.WriteString(renderField("Network", script.Network))
+
+	// Show indicator if pre-filled from config
+	if script.IsFromJSON && script.Config != nil {
+		configIcon := lipgloss.NewStyle().Foreground(accentColor).Render("📋")
+		details.WriteString(renderField("Config", configIcon+" Pre-filled"))
+	}
+
+	details.WriteString("\n")
+
+	// Show input forms if in fullscreen mode and have fields
+	rv.logger.Debug().
+		Bool("isFullscreen", rv.sv.IsFullscreen()).
+		Int("inputFieldsCount", len(rv.inputFields)).
+		Msg("buildScriptDetail checking if should show input fields")
+
+	if rv.sv.IsFullscreen() && len(rv.inputFields) > 0 {
+		// In fullscreen mode - show interactive input fields separated by type
+
+		// Show signers section
+		hasSigners := false
+		for _, field := range rv.inputFields {
+			if field.IsSigner {
+				hasSigners = true
+				break
+			}
+		}
+
+		if hasSigners {
+			details.WriteString("\n" + fieldStyle.Render("Signers:") + "\n\n")
+			for i, field := range rv.inputFields {
+				if !field.IsSigner {
+					continue
+				}
+
+				// Highlight active field
+				labelText := field.Label + ":"
+				if i == rv.activeFieldIndex {
+					if rv.editingField {
+						labelText = fieldStyle.Foreground(primaryColor).Render("▶ " + labelText)
+					} else {
+						labelText = fieldStyle.Foreground(solarYellow).Render("• " + labelText)
+					}
+				} else {
+					labelText = fieldStyle.Render("  " + labelText)
+				}
+
+				details.WriteString(labelText + "\n")
+				details.WriteString("  " + field.Input.View() + "\n\n")
+			}
+		}
+
+		// Show arguments section
+		hasArguments := false
+		for _, field := range rv.inputFields {
+			if !field.IsSigner {
+				hasArguments = true
+				break
+			}
+		}
+
+		if hasArguments {
+			details.WriteString(fieldStyle.Render("Arguments:") + "\n\n")
+			for i, field := range rv.inputFields {
+				if field.IsSigner {
+					continue
+				}
+
+				// Highlight active field
+				labelText := field.Label + ":"
+				if i == rv.activeFieldIndex {
+					if rv.editingField {
+						labelText = fieldStyle.Foreground(primaryColor).Render("▶ " + labelText)
+					} else {
+						labelText = fieldStyle.Foreground(solarYellow).Render("• " + labelText)
+					}
+				} else {
+					labelText = fieldStyle.Render("  " + labelText)
+				}
+
+				details.WriteString(labelText + "\n")
+				details.WriteString("  " + field.Input.View() + "\n\n")
+			}
+		}
+
+		// Show save dialog if active
+		if rv.savingConfig {
+			details.WriteString("\n" + fieldStyle.Render("Save Config As:") + "\n")
+			details.WriteString(rv.saveInput.View() + "\n")
+			if rv.saveError != "" {
+				details.WriteString(lipgloss.NewStyle().Foreground(errorColor).Render(rv.saveError) + "\n")
+			}
+		} else {
+			// Show hint to run in fullscreen mode
+			details.WriteString("\n" + fieldStyle.Render("Press 'r' to run, 's' to save config") + "\n")
+		}
+	} else {
+		// In split view mode - show merged parameters/signers info with values if available
+
+		// Show signers with values from config if available
+		if len(script.SignerParams) > 0 {
+			details.WriteString(fieldStyle.Render("Signers") + "\n")
+			for i, signer := range script.SignerParams {
+				// Get value from config if available
+				value := ""
+				if script.Config != nil && i < len(script.Config.Signers) {
+					value = fmt.Sprintf(": %s", valueStyle.Render(script.Config.Signers[i]))
+				}
+				details.WriteString(fmt.Sprintf("  %s%s\n", valueStyle.Render(signer.Name), value))
+			}
+			details.WriteString("\n")
+		}
+
+		// Show arguments with values from config if available
+		if len(script.Parameters) > 0 {
+			details.WriteString(fieldStyle.Render("Arguments") + "\n")
+			for _, param := range script.Parameters {
+				// Get value from config if available
+				value := ""
+				if script.Config != nil {
+					if val, exists := script.Config.Arguments[param.Name]; exists {
+						valueStr := fmt.Sprintf("%v", val)
+						// Truncate long values
+						if len(valueStr) > 40 {
+							valueStr = valueStr[:37] + "..."
+						}
+						value = fmt.Sprintf(" = %s", valueStyle.Render(valueStr))
+					}
+				}
+				if value == "" {
+					// No value, show type
+					value = fmt.Sprintf(" (%s)", param.Type)
+				}
+				details.WriteString(fmt.Sprintf("  %s%s\n", valueStyle.Render(param.Name), value))
+			}
+			details.WriteString("\n")
+		}
+	}
+
+	// Show execution results inline
+	// Show execution status
+	rv.logger.Debug().
+		Bool("executing", rv.executing).
+		Bool("hasError", rv.executionError != nil).
+		Bool("hasResult", rv.executionResult != "").
+		Msg("buildScriptDetail execution status")
+
+	if rv.executing {
+		details.WriteString(lipgloss.NewStyle().
+			Foreground(accentColor).
+			Render("\n⏳ Executing...\n"))
+	} else if rv.executionError != nil {
+		details.WriteString(lipgloss.NewStyle().
+			Foreground(errorColor).
+			Render(fmt.Sprintf("\n❌ Error: %s\n\n", rv.executionError.Error())))
+	} else if rv.executionResult != "" {
+		details.WriteString(lipgloss.NewStyle().
+			Foreground(successColor).
+			Render(fmt.Sprintf("\n✓ %s\n\n", rv.executionResult)))
+	}
+
+	// Add code section header (matches transactions view format)
+	if script.Code != "" {
+		codeLabel := "Script:"
+		if script.Type == TypeTransaction {
+			codeLabel = "Transaction:"
+		}
+		details.WriteString("\n" + fieldStyle.Render(fmt.Sprintf("%-12s", codeLabel)))
+	}
+
+	return details.String()
 }
 
 // parseScriptFile extracts parameters and signers from cadence code using AST parser
@@ -475,7 +1574,8 @@ func (rv *RunnerView) parseScriptFile(script *ScriptFile) {
 		// Parse signers from prepare block
 		if txd.Prepare != nil && txd.Prepare.FunctionDeclaration.ParameterList != nil {
 			prepareParams := txd.Prepare.FunctionDeclaration.ParameterList
-			script.Signers = len(prepareParams.ParametersByIdentifier())
+			script.SignerParams = rv.parseParameterList(prepareParams)
+			script.Signers = len(script.SignerParams)
 		}
 		return
 	}
@@ -511,878 +1611,4 @@ func (rv *RunnerView) parseParameterList(paramList *ast.ParameterList) []Paramet
 	}
 
 	return params
-}
-
-// refreshTable updates the table rows from scripts
-func (rv *RunnerView) refreshTable() {
-	rows := make([]table.Row, len(rv.scripts))
-	for i, script := range rv.scripts {
-		rows[i] = table.Row{
-			string(script.Type),
-			script.Name,
-			script.Network,
-		}
-	}
-	rv.table.SetRows(rows)
-}
-
-// setupInputFields creates input fields for the selected script
-func (rv *RunnerView) setupInputFields(script ScriptFile) {
-	rv.inputFields = make([]InputField, 0)
-
-	// Add parameter input fields
-	for _, param := range script.Parameters {
-		ti := textinput.New()
-		ti.Placeholder = param.Type
-		ti.CharLimit = 200
-		ti.Width = 40
-
-		// Pre-populate from JSON config if available
-		if script.Config != nil && script.Config.Arguments != nil {
-			if val, ok := script.Config.Arguments[param.Name]; ok {
-				// Convert interface{} to string for display
-				ti.SetValue(fmt.Sprintf("%v", val))
-			}
-		}
-
-		field := InputField{
-			Label:    param.Name,
-			TypeHint: param.Type,
-			Input:    ti,
-			IsSigner: false,
-		}
-		rv.inputFields = append(rv.inputFields, field)
-	}
-
-	// Add signer selection fields for transactions
-	if script.Type == TypeTransaction {
-		for i := 0; i < script.Signers; i++ {
-			ti := textinput.New()
-			ti.Placeholder = "Select signer (use friendly name)"
-			ti.CharLimit = 50
-			ti.Width = 40
-
-			// Pre-populate from JSON config if available
-			if script.Config != nil && script.Config.Signers != nil && i < len(script.Config.Signers) {
-				ti.SetValue(script.Config.Signers[i])
-			}
-
-			field := InputField{
-				Label:    fmt.Sprintf("Signer %d", i+1),
-				TypeHint: "&Account",
-				Input:    ti,
-				IsSigner: true,
-			}
-			rv.inputFields = append(rv.inputFields, field)
-		}
-	}
-
-	rv.activeFieldIndex = 0
-	rv.editingField = false
-}
-
-// updateCodeViewport updates the viewport with the selected script's code
-func (rv *RunnerView) updateCodeViewport(script ScriptFile) {
-	if rv.codeViewport.Width == 0 || rv.codeViewport.Height == 0 {
-		return
-	}
-	// Use pre-wrapped and highlighted code from scan time
-	content := script.HighlightedCode
-	if content == "" {
-		content = script.Code
-	}
-	rv.codeViewport.SetContent(content)
-	rv.codeViewport.GotoTop()
-}
-
-// updateDetailViewport updates the viewport content for full detail mode
-func (rv *RunnerView) updateDetailViewport() {
-	if len(rv.scripts) == 0 {
-		rv.detailViewport.SetContent("")
-		return
-	}
-
-	selectedIdx := rv.table.Cursor()
-	if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
-		if rv.detailViewport.Width == 0 || rv.detailViewport.Height == 0 {
-			return
-		}
-		script := rv.scripts[selectedIdx]
-		// Render the full detail content with full viewport width
-		content := rv.renderDetailText(script, rv.detailViewport.Width)
-		rv.detailViewport.SetContent(content)
-		rv.detailViewport.GotoTop()
-	}
-}
-
-func (rv *RunnerView) Init() tea.Cmd {
-	return rv.spinner.Tick
-}
-
-// SetAccountRegistry sets the account registry for signer name resolution
-func (rv *RunnerView) SetAccountRegistry(registry *aether.AccountRegistry) {
-	rv.accountRegistry = registry
-
-	// Update available signers list from registry
-	if registry != nil {
-		rv.availableSigners = registry.GetAllNames()
-	}
-}
-
-// SetOverflow sets the overflow state for executing transactions/scripts
-func (rv *RunnerView) SetOverflow(o *overflow.OverflowState) {
-	rv.overflow = o
-}
-
-// executeScriptCmd executes the selected script or transaction
-func (rv *RunnerView) executeScriptCmd(script ScriptFile) tea.Cmd {
-	// Capture values for async execution
-	o := rv.overflow
-
-	// Build overflow options from input fields
-	var opts []overflow.OverflowInteractionOption
-
-	// Collect signers and arguments
-	signerIndex := 0
-	for _, field := range rv.inputFields {
-		value := field.Input.Value()
-		if value == "" {
-			continue
-		}
-
-		if field.IsSigner {
-			// First signer uses WithSigner, rest use WithPayloadSigner
-			if signerIndex == 0 {
-				opts = append(opts, overflow.WithSigner(value))
-			} else {
-				opts = append(opts, overflow.WithPayloadSigner(value))
-			}
-			signerIndex++
-		} else {
-			opts = append(opts, overflow.WithArg(field.Label, value))
-		}
-	}
-
-	// Execute asynchronously without holding the lock
-	return func() tea.Msg {
-		// Recover from any panics during execution
-		var result tea.Msg
-		defer func() {
-			if r := recover(); r != nil {
-				// Send error message if panic occurs
-				result = ExecutionCompleteMsg{
-					Error: fmt.Errorf("panic during execution: %v", r),
-				}
-			}
-		}()
-
-		if o == nil {
-			return ExecutionCompleteMsg{
-				Error: fmt.Errorf("overflow not initialized"),
-			}
-		}
-
-		// Execute based on script type
-		// Overflow expects script name without .cdc extension
-		scriptName := script.Name
-
-		// If this is from a JSON config, use the config's referenced name
-		if script.IsFromJSON && script.Config != nil {
-			scriptName = script.Config.Name
-		}
-
-		if script.Type == TypeTransaction {
-			txResult := o.Tx(scriptName, opts...)
-			result = ExecutionCompleteMsg{
-				TxResult: txResult,
-				IsScript: false,
-				Error:    txResult.Err,
-			}
-		} else {
-			scriptResult := o.Script(scriptName, opts...)
-			result = ExecutionCompleteMsg{
-				ScriptResult: scriptResult,
-				IsScript:     true,
-				Error:        scriptResult.Err,
-			}
-		}
-
-		return result
-	}
-}
-
-// formatValue recursively formats a value with proper indentation
-// Note: Underflow now handles timestamp formatting and human-readable addresses automatically
-func (rv *RunnerView) formatValue(value interface{}, indent string) string {
-	var b strings.Builder
-
-	switch v := value.(type) {
-	case map[string]interface{}:
-		if len(v) == 0 {
-			b.WriteString("<empty>")
-			return b.String()
-		}
-		first := true
-		for key, val := range v {
-			if !first {
-				b.WriteString("\n")
-			}
-			first = false
-			b.WriteString(fmt.Sprintf("%s%s: ", indent, key))
-			b.WriteString(rv.formatValue(val, indent+"  "))
-		}
-	case []interface{}:
-		if len(v) == 0 {
-			b.WriteString("<empty>")
-			return b.String()
-		}
-		for i, val := range v {
-			if i > 0 {
-				b.WriteString("\n")
-			}
-			b.WriteString(fmt.Sprintf("%s[%d]: ", indent, i))
-			b.WriteString(rv.formatValue(val, indent+"  "))
-		}
-	default:
-		// Underflow handles timestamps and addresses automatically
-		b.WriteString(fmt.Sprintf("%v", value))
-	}
-
-	return b.String()
-}
-
-// formatScriptResult formats the script result for display
-func (rv *RunnerView) formatScriptResult(result *overflow.OverflowScriptResult) string {
-	if result == nil {
-		return "✓ Script executed successfully"
-	}
-
-	var b strings.Builder
-
-	b.WriteString("✓ Script executed successfully\n\n")
-	// Use underflow to convert the Result to interface{}
-	value := underflow.CadenceValueToInterface(result.Result)
-
-	b.WriteString("Output:\n")
-	b.WriteString(rv.formatValue(value, ""))
-
-	return b.String()
-}
-
-// formatTransactionResult formats the transaction result for display
-func (rv *RunnerView) formatTransactionResult(result *overflow.OverflowResult) string {
-	if result == nil {
-		return "✓ Transaction executed successfully"
-	}
-
-	var b strings.Builder
-
-	b.WriteString("✓ Transaction executed successfully\n\n")
-	b.WriteString(fmt.Sprintf("Transaction ID: %s\n", result.Id))
-
-	// Show events if any
-	if len(result.Events) > 0 {
-		b.WriteString(fmt.Sprintf("\nEvents (%d):\n", len(result.Events)))
-		count := 0
-		for eventName, eventList := range result.Events {
-			if count >= 5 {
-				b.WriteString(fmt.Sprintf("  ... and %d more event types\n", len(result.Events)-5))
-				break
-			}
-			b.WriteString(fmt.Sprintf("  • %s (%d)\n", eventName, len(eventList)))
-			count++
-		}
-	}
-
-	return b.String()
-}
-
-// saveCurrentConfig saves the current input values to a JSON config file
-func (rv *RunnerView) saveCurrentConfig(filename string, script ScriptFile) error {
-	// Build config from current input fields
-	config := &flow.TransactionConfig{
-		Name:      script.Name,
-		Signers:   make([]string, 0),
-		Arguments: make(map[string]interface{}),
-	}
-
-	// Collect values from input fields
-	for _, field := range rv.inputFields {
-		value := field.Input.Value()
-		if value == "" {
-			continue // Skip empty fields
-		}
-
-		if field.IsSigner {
-			config.Signers = append(config.Signers, value)
-		} else {
-			config.Arguments[field.Label] = value
-		}
-	}
-
-	// If this script was loaded from JSON, use the original name for the referenced .cdc file
-	if script.IsFromJSON && script.Config != nil {
-		config.Name = script.Config.Name
-	}
-
-	// Determine directory based on script type
-	var dir string
-	if script.Type == TypeScript {
-		// Try scripts first, fall back to cadence/scripts
-		if _, err := os.Stat("scripts"); err == nil {
-			dir = "scripts"
-		} else {
-			dir = "cadence/scripts"
-		}
-	} else {
-		// Try transactions first, fall back to cadence/transactions
-		if _, err := os.Stat("transactions"); err == nil {
-			dir = "transactions"
-		} else {
-			dir = "cadence/transactions"
-		}
-	}
-
-	// Ensure filename has .json extension
-	if !strings.HasSuffix(filename, ".json") {
-		filename += ".json"
-	}
-
-	path := filepath.Join(dir, filename)
-	return flow.SaveTransactionConfig(path, config)
-}
-
-// Update handles messages for the runner view
-func (rv *RunnerView) Update(msg tea.Msg, width, height int) tea.Cmd {
-	rv.width = width
-	rv.height = height
-
-	switch msg := msg.(type) {
-	case ExecutionCompleteMsg:
-		rv.isExecuting = false
-		if msg.Error != nil {
-			rv.executionError = msg.Error
-			rv.executionResult = ""
-		} else {
-			// Format result based on type
-			if msg.IsScript && msg.ScriptResult != nil {
-				// Show detailed script output
-				rv.executionResult = rv.formatScriptResult(msg.ScriptResult)
-			} else if !msg.IsScript && msg.TxResult != nil {
-				// Show detailed transaction result
-				rv.executionResult = rv.formatTransactionResult(msg.TxResult)
-			} else {
-				rv.executionResult = "✓ Execution successful"
-			}
-		}
-		return nil
-
-	case RescanFilesMsg:
-		// Rescan files synchronously to update table
-		rv.scanFiles()
-		return nil
-
-	case spinner.TickMsg:
-		if rv.isExecuting {
-			var cmd tea.Cmd
-			rv.spinner, cmd = rv.spinner.Update(msg)
-			return cmd
-		}
-		return nil
-
-	case tea.WindowSizeMsg:
-		if !rv.ready {
-			rv.ready = true
-		}
-		// Table width using configured percentage
-		tableWidth := int(float64(width) * float64(rv.tableWidthPercent) / 100.0)
-		detailWidth := max(10, width-tableWidth-2)
-		rv.table.SetWidth(tableWidth)
-		rv.table.SetHeight(height)
-
-		// Code viewport at bottom of detail pane
-		rv.codeViewport.Width = width - tableWidth - 4
-		rv.codeViewport.Height = height / 2 // Half for inputs, half for code
-
-		// Update viewport size for full detail mode
-		hint := lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Render("Press Tab or Esc to return to table view | j/k to scroll | r to run | s to save")
-		hintHeight := lipgloss.Height(hint) + 2 // +2 for spacing
-		rv.detailViewport.Width = width
-		rv.detailViewport.Height = height - hintHeight
-
-		// Update split view detail viewport size
-		rv.splitDetailViewport.Width = detailWidth
-		rv.splitDetailViewport.Height = height
-
-	case tea.KeyMsg:
-		// Handle save dialog if active
-		if rv.savingConfig {
-			switch {
-			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-				// Cancel save
-				rv.savingConfig = false
-				rv.saveInput.SetValue("")
-				rv.saveInput.Blur()
-				rv.saveError = ""
-				return nil
-			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-				// Perform save
-				filename := rv.saveInput.Value()
-				if filename == "" {
-					rv.saveError = "Filename cannot be empty"
-					return nil
-				}
-
-				selectedIdx := rv.table.Cursor()
-				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
-					script := rv.scripts[selectedIdx]
-					err := rv.saveCurrentConfig(filename, script)
-					if err != nil {
-						rv.saveError = err.Error()
-					} else {
-						rv.savingConfig = false
-						rv.saveInput.SetValue("")
-						rv.saveInput.Blur()
-						rv.saveError = ""
-						// Rescan to pick up the new file
-						rv.scanFiles()
-						return nil
-					}
-				}
-				return nil
-			default:
-				// Pass input to save textinput
-				var cmd tea.Cmd
-				rv.saveInput, cmd = rv.saveInput.Update(msg)
-				return cmd
-			}
-		}
-
-		// Check if we're in full detail mode
-		inFullDetail := rv.fullDetailMode
-		isEditing := rv.editingField
-		hasFields := len(rv.inputFields) > 0
-
-		// Handle Esc to exit full detail view (only if not editing a field)
-		if inFullDetail && !isEditing && key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
-			rv.fullDetailMode = false
-			return nil
-		}
-
-		// If editing a field (only in full detail mode), pass input to textinput
-		if inFullDetail && isEditing && hasFields {
-			switch {
-			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-				rv.editingField = false
-				rv.inputFields[rv.activeFieldIndex].Input.Blur()
-				return nil
-			case key.Matches(msg, rv.keys.NextField): // tab
-				rv.inputFields[rv.activeFieldIndex].Input.Blur()
-				// Move to next field and auto-focus it
-				if rv.activeFieldIndex < len(rv.inputFields)-1 {
-					rv.activeFieldIndex++
-					rv.inputFields[rv.activeFieldIndex].Input.Focus()
-					return textinput.Blink
-				}
-				// Last field - exit editing mode
-				rv.editingField = false
-				return nil
-			case key.Matches(msg, rv.keys.PrevField): // shift+tab
-				rv.inputFields[rv.activeFieldIndex].Input.Blur()
-				// Move to previous field and auto-focus it
-				if rv.activeFieldIndex > 0 {
-					rv.activeFieldIndex--
-					rv.inputFields[rv.activeFieldIndex].Input.Focus()
-					return textinput.Blink
-				}
-				// First field - exit editing mode
-				rv.editingField = false
-				return nil
-			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-				// Enter just exits editing mode
-				rv.editingField = false
-				rv.inputFields[rv.activeFieldIndex].Input.Blur()
-				return nil
-			default:
-				var cmd tea.Cmd
-				rv.inputFields[rv.activeFieldIndex].Input, cmd = rv.inputFields[rv.activeFieldIndex].Input.Update(msg)
-				return cmd
-			}
-		}
-
-		// Handle navigation when not editing
-		switch {
-		case key.Matches(msg, rv.keys.Run):
-			// Execute the script/transaction
-			if !rv.isExecuting {
-				selectedIdx := rv.table.Cursor()
-				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
-					rv.isExecuting = true
-					rv.executionResult = ""
-					rv.executionError = nil
-					script := rv.scripts[selectedIdx]
-					return tea.Batch(
-						rv.executeScriptCmd(script),
-						rv.spinner.Tick,
-					)
-				}
-			}
-			return nil
-
-		case key.Matches(msg, rv.keys.Enter):
-			// Enter/Space toggles full detail mode (when not editing)
-			if !isEditing {
-				wasFullMode := rv.fullDetailMode
-				rv.fullDetailMode = !rv.fullDetailMode
-				// When entering full detail mode, auto-focus first field if available
-				if !wasFullMode && rv.fullDetailMode {
-					rv.updateDetailViewport()
-					if len(rv.inputFields) > 0 {
-						rv.activeFieldIndex = 0
-						rv.editingField = true
-						rv.inputFields[0].Input.Focus()
-						return textinput.Blink
-					}
-				}
-				return nil
-			}
-			return nil
-
-		case key.Matches(msg, rv.keys.Save):
-			// Activate save dialog
-			rv.savingConfig = true
-			rv.saveInput.Focus()
-			rv.saveError = ""
-			return textinput.Blink
-
-		case key.Matches(msg, rv.keys.Refresh):
-			// Trigger rescan of files
-			return func() tea.Msg {
-				return RescanFilesMsg{}
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("i"))):
-			// 'i' to start editing in full detail mode
-			if inFullDetail && !isEditing {
-				hasFields = len(rv.inputFields) > 0
-				activeIdx := rv.activeFieldIndex
-
-				if hasFields {
-					rv.editingField = true
-					rv.inputFields[activeIdx].Input.Focus()
-					return textinput.Blink
-				}
-			}
-			return nil
-
-		case key.Matches(msg, rv.keys.Down), key.Matches(msg, rv.keys.NextField):
-			// In full detail mode, scroll viewport or navigate form fields
-			if inFullDetail {
-				// If not editing, scroll the viewport
-				if !isEditing {
-					rv.detailViewport.LineDown(1)
-					return nil
-				}
-				// If editing, navigate form fields
-				if len(rv.inputFields) > 0 && rv.activeFieldIndex < len(rv.inputFields)-1 {
-					rv.activeFieldIndex++
-					return nil
-				}
-				return nil
-			}
-			// In split view, navigate table
-			var cmd tea.Cmd
-			rv.table, cmd = rv.table.Update(msg)
-			// Update input fields for selected script and clear previous results
-			selectedIdx := rv.table.Cursor()
-			if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
-				rv.setupInputFields(rv.scripts[selectedIdx])
-				rv.updateCodeViewport(rv.scripts[selectedIdx])
-				// Clear previous execution results when switching scripts
-				rv.executionResult = ""
-				rv.executionError = nil
-			}
-			return cmd
-
-		case key.Matches(msg, rv.keys.Up), key.Matches(msg, rv.keys.PrevField):
-			// In full detail mode, scroll viewport or navigate form fields
-			if inFullDetail {
-				// If not editing, scroll the viewport
-				if !isEditing {
-					rv.detailViewport.LineUp(1)
-					return nil
-				}
-				// If editing, navigate form fields
-				if len(rv.inputFields) > 0 && rv.activeFieldIndex > 0 {
-					rv.activeFieldIndex--
-					return nil
-				}
-				return nil
-			}
-			// In split view, navigate table
-			var cmd tea.Cmd
-			rv.table, cmd = rv.table.Update(msg)
-			// Update input fields for selected script and clear previous results
-			selectedIdx := rv.table.Cursor()
-			if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
-				rv.setupInputFields(rv.scripts[selectedIdx])
-				rv.updateCodeViewport(rv.scripts[selectedIdx])
-				// Clear previous execution results when switching scripts
-				rv.executionResult = ""
-				rv.executionError = nil
-			}
-			return cmd
-
-		default:
-			// In split view, pass to table for other keys
-			if !inFullDetail {
-				var cmd tea.Cmd
-				rv.table, cmd = rv.table.Update(msg)
-				return cmd
-			}
-		}
-	}
-
-	return nil
-}
-
-// View renders the runner view
-func (rv *RunnerView) View() string {
-	if !rv.ready {
-		return "Loading runner..."
-	}
-
-	if len(rv.scripts) == 0 {
-		return lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Render("No scripts or transactions found in scripts/, transactions/, cadence/scripts/, or cadence/transactions/")
-	}
-
-	// Full detail mode - show detail with interactive forms in a scrollable viewport
-	if rv.fullDetailMode {
-		selectedIdx := rv.table.Cursor()
-		if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
-			script := rv.scripts[selectedIdx]
-
-			// Set viewport to full screen dimensions
-			rv.detailViewport.Width = rv.width
-			rv.detailViewport.Height = rv.height - 3 // Leave room for hint
-
-			// Render all content into viewport for scrolling
-			content := rv.renderDetailForViewport(script)
-			rv.detailViewport.SetContent(content)
-
-			hint := lipgloss.NewStyle().
-				Foreground(mutedColor).
-				Render("Press Tab or Esc to return to table view")
-			return hint + "\n\n" + rv.detailViewport.View()
-		}
-		return "No script selected"
-	}
-
-	// Split view mode - table on left, detail on right
-	// Calculate widths using configured percentages
-	tableWidth := int(float64(rv.width) * float64(rv.tableWidthPercent) / 100.0)
-
-	// Update split detail viewport with current script (before rendering table - same order as transactions_view)
-	selectedIdx := rv.table.Cursor()
-	if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
-		currentWidth := rv.splitDetailViewport.Width
-		if currentWidth == 0 {
-			currentWidth = 100 // Default
-		}
-
-		script := rv.scripts[selectedIdx]
-
-		// Just render fresh every time - no caching, no optimization
-		content := rv.renderDetailText(script, currentWidth)
-		wrappedContent := lipgloss.NewStyle().Width(currentWidth).Render(content)
-
-		rv.splitDetailViewport.SetContent(wrappedContent)
-		rv.splitDetailViewport.GotoTop()
-	} else {
-		rv.splitDetailViewport.SetContent("No script selected")
-		rv.splitDetailViewport.GotoTop()
-	}
-
-	// Style table
-	tableView := lipgloss.NewStyle().
-		Width(tableWidth).
-		MaxHeight(rv.height).
-		Render(rv.table.View())
-
-	// Render split detail viewport (viewport itself handles width/height constraints)
-	detailView := rv.splitDetailViewport.View()
-
-	// Combine table and detail side by side
-	return lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		tableView,
-		detailView,
-	)
-}
-
-// renderDetailText renders the full detail content for inspector mode (without input forms)
-// width specifies the maximum width for text wrapping (0 = no wrapping)
-func (rv *RunnerView) renderDetailText(script ScriptFile, width int) string {
-	fieldStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
-	valueStyleDetail := lipgloss.NewStyle().Foreground(accentColor)
-
-	renderField := func(label, value string) string {
-		return fieldStyle.Render(fmt.Sprintf("%-15s", label+":")) + " " + valueStyleDetail.Render(value) + "\n"
-	}
-
-	var details strings.Builder
-
-	// Title
-	details.WriteString(fieldStyle.Render("Script/Transaction Details") + "\n\n")
-
-	// Basic info
-	details.WriteString(renderField("Type", string(script.Type)))
-	details.WriteString(renderField("Name", script.Name))
-	details.WriteString(renderField("Network", script.Network))
-
-	if script.Signers > 0 {
-		details.WriteString(renderField("Signers", fmt.Sprintf("%d", script.Signers)))
-	}
-
-	if len(script.Parameters) > 0 {
-		details.WriteString(renderField("Parameters", fmt.Sprintf("%d", len(script.Parameters))))
-	}
-
-	details.WriteString("\n")
-
-	// Show execution result if present
-	if rv.isExecuting {
-		details.WriteString(fieldStyle.Render("Status:") + " " + rv.spinner.View() + " Executing...\n\n")
-	} else if rv.executionError != nil {
-		errorStyle := lipgloss.NewStyle().Foreground(errorColor).Bold(true)
-		details.WriteString(fieldStyle.Render("Error:") + "\n")
-		details.WriteString(errorStyle.Render(rv.executionError.Error()) + "\n\n")
-	} else if rv.executionResult != "" {
-		successStyle := lipgloss.NewStyle().Foreground(successColor).Bold(true)
-		details.WriteString(fieldStyle.Render("Result:") + "\n")
-		details.WriteString(successStyle.Render(rv.executionResult) + "\n\n")
-	}
-
-	// Parameters (if any)
-	if len(script.Parameters) > 0 {
-		details.WriteString(fieldStyle.Render("Parameters:") + "\n")
-		for _, param := range script.Parameters {
-			details.WriteString(fmt.Sprintf("  • %s: %s\n",
-				valueStyleDetail.Render(param.Name),
-				lipgloss.NewStyle().Foreground(mutedColor).Render(param.Type)))
-		}
-		details.WriteString("\n")
-	}
-
-	// Code - use pre-highlighted code (just like transactions_view)
-	details.WriteString(fieldStyle.Render("Code:") + "\n")
-	// Show syntax-highlighted code if available, otherwise raw code
-	codeToShow := script.HighlightedCode
-	if codeToShow == "" {
-		codeToShow = script.Code
-	}
-	// Don't wrap in valueStyleDetail since highlighted code already has colors
-	details.WriteString(codeToShow + "\n")
-
-	return details.String()
-}
-
-// renderDetailForViewport renders the detail view with form and code for viewport (full detail mode with input forms)
-func (rv *RunnerView) renderDetailForViewport(script ScriptFile) string {
-	// Don't apply width constraint to avoid truncating styled content
-	detailStyle := lipgloss.NewStyle().
-		Padding(1, 2)
-
-	var content strings.Builder
-
-	// Show save dialog if active
-	if rv.savingConfig {
-		saveTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Save Configuration")
-		content.WriteString(saveTitle + "\n\n")
-
-		content.WriteString("Enter filename (without .json extension):\n")
-		content.WriteString(rv.saveInput.View() + "\n\n")
-
-		if rv.saveError != "" {
-			errorStyle := lipgloss.NewStyle().Foreground(errorColor)
-			content.WriteString(errorStyle.Render("Error: "+rv.saveError) + "\n\n")
-		}
-
-		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
-		content.WriteString(hintStyle.Render("Press Enter to save, Esc to cancel") + "\n")
-
-		return detailStyle.Render(content.String())
-	}
-
-	// Show spinner or execution result
-	if rv.isExecuting {
-		content.WriteString(rv.spinner.View() + " Executing...\n\n")
-	} else if rv.executionError != nil {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-		content.WriteString(errorStyle.Render("✗ Error: "+rv.executionError.Error()) + "\n\n")
-	} else if rv.executionResult != "" {
-		successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
-		content.WriteString(successStyle.Render(rv.executionResult) + "\n\n")
-	}
-
-	// Input form
-	if len(rv.inputFields) > 0 {
-		formTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Parameters:")
-		content.WriteString(formTitle + "\n\n")
-
-		for i, field := range rv.inputFields {
-			// Highlight active field
-			labelStyle := lipgloss.NewStyle().Foreground(accentColor)
-			if i == rv.activeFieldIndex {
-				labelStyle = labelStyle.Bold(true).Foreground(solarYellow)
-			}
-
-			label := labelStyle.Render(fmt.Sprintf("%-20s", field.Label+":"))
-			typeHint := lipgloss.NewStyle().Foreground(mutedColor).Render(field.TypeHint)
-
-			content.WriteString(fmt.Sprintf("%s %s\n", label, typeHint))
-
-			// Show input box
-			inputStyle := lipgloss.NewStyle().Foreground(base0)
-			if i == rv.activeFieldIndex && rv.editingField {
-				inputStyle = inputStyle.BorderStyle(lipgloss.NormalBorder()).BorderForeground(primaryColor)
-			}
-			content.WriteString(inputStyle.Render(field.Input.View()) + "\n\n")
-		}
-
-		// Hint
-		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
-		if rv.editingField {
-			content.WriteString(hintStyle.Render("Press Esc to stop editing, Enter/Tab for next field") + "\n\n")
-		} else {
-			content.WriteString(hintStyle.Render("Press Enter/Tab to edit, j/k to navigate, r to run, s to save") + "\n\n")
-		}
-	} else {
-		// No parameters - show hint to run directly
-		hintStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
-		content.WriteString(hintStyle.Render("No parameters required. Press r to run, s to save") + "\n\n")
-	}
-
-	// Code section - use pre-highlighted code (just like transactions_view)
-	codeTitle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Code:")
-	content.WriteString(codeTitle + "\n")
-
-	// Show syntax-highlighted code if available, otherwise raw code
-	codeToShow := script.HighlightedCode
-	if codeToShow == "" {
-		codeToShow = script.Code
-	}
-	// Don't wrap in valueStyleDetail since highlighted code already has colors
-	content.WriteString(codeToShow + "\n")
-
-	return detailStyle.Render(content.String())
-}
-
-// Stop is a no-op for the runner view
-func (rv *RunnerView) Stop() {
-	// No cleanup needed
 }

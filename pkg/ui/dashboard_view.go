@@ -3,74 +3,84 @@ package ui
 import (
 	"fmt"
 
+	"github.com/bjartek/aether/pkg/config"
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rs/zerolog"
 )
 
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(primaryColor).
-			MarginBottom(1)
+// DashboardView displays service information and guidelines
+type DashboardView struct {
+	services []ServiceInfo
+	ready    bool
+	width    int
+	height   int
+	logger   zerolog.Logger // Debug logger
+}
 
-	sectionStyle = lipgloss.NewStyle().
-			MarginTop(1).
-			MarginBottom(1)
-
-	labelStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(secondaryColor)
-
-	valueStyle = lipgloss.NewStyle().
-			Foreground(accentColor)
-)
-
-// ServiceInfo represents information about a running service
 type ServiceInfo struct {
 	Name   string
 	Port   string
 	Status string
 }
 
-// DashboardView displays service information and guidelines
-type DashboardView struct {
-	services []ServiceInfo
-	ready    bool
-}
+// NewDashboardViewWithConfig creates a new v2 dashboard view
+func NewDashboardViewWithConfig(cfg *config.Config, logger zerolog.Logger) *DashboardView {
+	// Fallback to defaults when cfg is nil
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
 
-// NewDashboardView creates a new dashboard view
-func NewDashboardView() *DashboardView {
+	// Build services list from config ports
+	services := []ServiceInfo{
+		{Name: "Flow Emulator (gRPC)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.GRPC), Status: "Running"},
+		{Name: "Flow Emulator (REST)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.REST), Status: "Running"},
+		{Name: "Flow Emulator (Admin)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.Admin), Status: "Running"},
+		{Name: "Flow Emulator (Debugger)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.Debugger), Status: "Running"},
+		{Name: "Dev Wallet", Port: fmt.Sprintf("%d", cfg.Ports.DevWallet), Status: "Running"},
+		{Name: "EVM Gateway (JSON-RPC)", Port: fmt.Sprintf("%d", cfg.Ports.EVM.RPC), Status: "Running"},
+		{Name: "EVM Gateway (Profile)", Port: fmt.Sprintf("%d", cfg.Ports.EVM.Profiler), Status: "Running"},
+	}
+
 	return &DashboardView{
-		services: []ServiceInfo{
-			{Name: "Flow Emulator (gRPC)", Port: "3569", Status: "Running"},
-			{Name: "Flow Emulator (REST)", Port: "8888", Status: "Running"},
-			{Name: "Flow Emulator (Admin)", Port: "8080", Status: "Running"},
-			{Name: "Flow Emulator (Debugger)", Port: "2345", Status: "Running"},
-			{Name: "Dev Wallet", Port: "8701", Status: "Running"},
-			{Name: "EVM Gateway (JSON-RPC)", Port: "8545", Status: "Running"},
-			{Name: "EVM Gateway (Profile)", Port: "6060", Status: "Running"},
-		},
-		ready: true,
+		services: services,
+		ready:    true,
+		logger:   logger,
 	}
 }
 
-// Init initializes the dashboard view
+// Init implements tea.Model
 func (dv *DashboardView) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles messages for the dashboard view
-func (dv *DashboardView) Update(msg tea.Msg, width, height int) tea.Cmd {
-	return nil
+// Update implements tea.Model
+func (dv *DashboardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	dv.logger.Debug().Str("method", "Update").Interface("msgType", msg).Msg("DashboardView.Update called")
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		dv.width = msg.Width
+		dv.height = msg.Height
+	}
+	return dv, nil
 }
 
-// View renders the dashboard view
+// View implements tea.Model
 func (dv *DashboardView) View() string {
+	dv.logger.Debug().Str("method", "View").Msg("DashboardView.View called")
+
 	if !dv.ready {
 		return "Loading dashboard..."
 	}
 
 	var content string
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#00D7FF")).
+		MarginBottom(1)
 
 	// Title
 	content += titleStyle.Render("🌊 Aether - Flow Blockchain Dashboard") + "\n\n"
@@ -88,6 +98,37 @@ func (dv *DashboardView) View() string {
 	)
 
 	return content
+}
+
+// Name implements TabbedModel interface
+func (dv *DashboardView) Name() string {
+	return "Dashboard"
+}
+
+// KeyMap implements TabbedModel interface
+func (dv *DashboardView) KeyMap() help.KeyMap {
+	return dashboardKeyMapAdapter{}
+}
+
+// dashboardKeyMapAdapter provides empty key bindings for dashboard
+type dashboardKeyMapAdapter struct{}
+
+func (k dashboardKeyMapAdapter) ShortHelp() []key.Binding {
+	return []key.Binding{}
+}
+
+func (k dashboardKeyMapAdapter) FullHelp() [][]key.Binding {
+	return [][]key.Binding{}
+}
+
+// FooterView implements TabbedModel interface
+func (dv *DashboardView) FooterView() string {
+	return ""
+}
+
+// IsCapturingInput implements TabbedModel interface
+func (dv *DashboardView) IsCapturingInput() bool {
+	return false
 }
 
 func (dv *DashboardView) renderServices() string {
@@ -130,9 +171,4 @@ func (dv *DashboardView) renderGuidelines() string {
   💭 Vibe-coded with Windsurf & Claude Sonnet 4.5 Thinking
 `
 	return valueStyle.Render(guidelines)
-}
-
-// Stop is a no-op for the dashboard view
-func (dv *DashboardView) Stop() {
-	// No cleanup needed
 }

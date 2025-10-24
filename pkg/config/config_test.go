@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -38,7 +40,7 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestLoadWithoutConfigFile(t *testing.T) {
 	// Load without any config file - should use defaults
-	cfg, err := Load("")
+	cfg, err := Load("", zerolog.Nop())
 	if err != nil {
 		t.Fatalf("unexpected error loading config: %v", err)
 	}
@@ -69,8 +71,8 @@ logging:
 		t.Fatalf("failed to write test config: %v", err)
 	}
 
-	// Load the config
-	cfg, err := Load(configPath)
+	// Load config file
+	cfg, err := Load(configPath, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("unexpected error loading config: %v", err)
 	}

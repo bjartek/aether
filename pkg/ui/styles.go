@@ -107,4 +107,15 @@ var (
 	helpIndicatorStyle = lipgloss.NewStyle().
 				Foreground(mutedColor).
 				Padding(0, 2)
+
+	// Dashboard styles
+	sectionStyle = lipgloss.NewStyle().
+			MarginBottom(2)
+
+	labelStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(secondaryColor)
+
+	valueStyle = lipgloss.NewStyle().
+			Foreground(accentColor)
 )

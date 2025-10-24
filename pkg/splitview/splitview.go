@@ -76,20 +76,17 @@ type SplitViewModel struct {
 type KeyMap struct {
 	ToggleFullscreen key.Binding
 	ExitFullscreen   key.Binding
-	ToggleHelp       key.Binding
-	Quit             key.Binding
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.ToggleHelp, k.ToggleFullscreen, k.Quit}
+	return []key.Binding{k.ExitFullscreen, k.ToggleFullscreen}
 }
 
 // FullHelp returns keybindings for the expanded help view
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.ToggleFullscreen, k.ExitFullscreen},
-		{k.ToggleHelp, k.Quit},
 	}
 }
 
@@ -103,14 +100,6 @@ func NewKeyMap() KeyMap {
 		ExitFullscreen: key.NewBinding(
 			key.WithKeys("esc"),
 			key.WithHelp("esc", "exit fullscreen/help"),
-		),
-		ToggleHelp: key.NewBinding(
-			key.WithKeys("?"),
-			key.WithHelp("?", "toggle help"),
-		),
-		Quit: key.NewBinding(
-			key.WithKeys("q", "ctrl+c"),
-			key.WithHelp("q", "quit"),
 		),
 	}
 }
@@ -205,8 +194,6 @@ func (m *SplitViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Handle our custom keys first using key.Matches
 		switch {
-		case key.Matches(msg, m.Keys.Quit):
-			return m, tea.Quit
 		case key.Matches(msg, m.Keys.ToggleFullscreen):
 			m.fullDetailMode = !m.fullDetailMode
 			return m, nil
@@ -330,8 +317,29 @@ func (sv *SplitViewModel) GetCursor() int {
 }
 
 // IsFullscreen returns whether the view is in fullscreen mode
-func (sv *SplitViewModel) IsFullscreen() bool {
-	return sv.fullDetailMode
+func (m *SplitViewModel) IsFullscreen() bool {
+	return m.fullDetailMode
+}
+
+// GetTableWidth returns the calculated table width
+func (m *SplitViewModel) GetTableWidth() int {
+	return int(float64(m.width) * m.tableSplitPercent)
+}
+
+// GetDetailWidth returns the calculated detail width
+func (m *SplitViewModel) GetDetailWidth() int {
+	tableWidth := int(float64(m.width) * m.tableSplitPercent)
+	return m.width - tableWidth
+}
+
+// GetWidth returns the total width
+func (m *SplitViewModel) GetWidth() int {
+	return m.width
+}
+
+// GetHeight returns the total height
+func (m *SplitViewModel) GetHeight() int {
+	return m.height
 }
 
 // UpdateRow updates a specific row at the given index

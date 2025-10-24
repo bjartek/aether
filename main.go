@@ -31,10 +31,38 @@ func main() {
 	// Parse command line flags
 	configPath := flag.String("config", "", "Path to configuration file")
 	network := flag.String("n", "", "Network to follow: emulator, testnet, or mainnet (overrides config)")
+	debugFlag := flag.Bool("debug", false, "Enable debug logging to aether-debug.log")
+	flag.BoolVar(debugFlag, "d", false, "Enable debug logging to aether-debug.log (shorthand)")
 	flag.Parse()
 
-	// Load configuration
-	cfg, err := config.Load(*configPath)
+	// Create debug logger if --debug/-d flag is set
+	var debugLogger zerolog.Logger
+	if *debugFlag {
+		// Delete existing debug log file
+		_ = os.Remove("aether-debug.log")
+		
+		// Create new debug log file
+		debugLogFile, err := os.OpenFile("aether-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			fmt.Printf("Failed to create debug log file: %v\n", err)
+			os.Exit(1)
+		}
+		defer debugLogFile.Close()
+		
+		debugLogger = zerolog.New(debugLogFile).
+			With().
+			Timestamp().
+			Logger().
+			Level(zerolog.DebugLevel)
+		
+		debugLogger.Info().Msg("Debug logging enabled")
+	} else {
+		// No debug logging - use no-op logger
+		debugLogger = zerolog.Nop()
+	}
+
+	// Load configuration with debug logger
+	cfg, err := config.Load(*configPath, debugLogger)
 	if err != nil {
 		fmt.Printf("Failed to load configuration: %v\n", err)
 		os.Exit(1)
@@ -147,9 +175,7 @@ func main() {
 		Config:  cfg,
 	}
 
-	//this is the old way
-	//model := ui.NewModelWithConfig(cfg)
-	model := ui.NewTestModelWithConfig(cfg)
+	model := ui.NewModelWithConfig(cfg, debugLogger)
 
 	// Now create the Bubble Tea program with config
 	p := tea.NewProgram(

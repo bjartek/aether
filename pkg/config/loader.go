@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 )
 
@@ -15,11 +16,8 @@ import (
 // 4. ~/.aether/config.yaml (user home)
 // 5. /etc/aether/config.yaml (system-wide)
 // Falls back to defaults if no config file is found
-func Load(configPath string) (*Config, error) {
+func Load(configPath string, logger zerolog.Logger) (*Config, error) {
 	v := viper.New()
-
-	// Set defaults
-	setDefaults(v)
 
 	// Configure viper
 	v.SetConfigName("aether")
@@ -31,8 +29,8 @@ func Load(configPath string) (*Config, error) {
 		v.SetConfigFile(configPath)
 	} else {
 		// Add default search paths
-		v.AddConfigPath(".")                    // Current directory
-		v.AddConfigPath("./config")             // ./config directory
+		v.AddConfigPath(".")        // Current directory
+		v.AddConfigPath("./config") // ./config directory
 		if home, err := os.UserHomeDir(); err == nil {
 			v.AddConfigPath(filepath.Join(home, ".aether")) // ~/.aether
 		}
@@ -46,21 +44,48 @@ func Load(configPath string) (*Config, error) {
 	v.AutomaticEnv()
 
 	// Try to read config file
+	configFileUsed := ""
+	foundConfigFile := false
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// Config file not found; use defaults
 			// This is not an error - we have sensible defaults
+			logger.Debug().
+				Str("searchPaths", "., ./config, ~/.aether, /etc/aether").
+				Msg("No config file found in search paths, using defaults from defaults.go")
 		} else {
 			// Config file was found but another error occurred
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
+	} else {
+		configFileUsed = v.ConfigFileUsed()
+		foundConfigFile = true
+		logger.Debug().
+			Str("configFile", configFileUsed).
+			Msg("Config file found and loaded by viper")
 	}
 
-	// Unmarshal into config struct
-	cfg := &Config{}
+	// Start with defaults from defaults.go
+	cfg := DefaultConfig()
+	logger.Debug().Msg("Starting with defaults from defaults.go")
+	
+	// Unmarshal config file on top of defaults (if file exists)
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("error unmarshaling config: %w", err)
 	}
+
+	// Always log complete effective configuration
+	logger.Info().
+		Bool("configFileFound", foundConfigFile).
+		Str("configFile", configFileUsed).
+		Str("network", cfg.Network).
+		Interface("flow", cfg.Flow).
+		Interface("indexer", cfg.Indexer).
+		Interface("ports", cfg.Ports).
+		Interface("evm", cfg.EVM).
+		Interface("logging", cfg.Logging).
+		Interface("ui", cfg.UI).
+		Msg("Complete effective configuration")
 
 	// Apply inheritance for log levels
 	applyLogLevelInheritance(cfg)
@@ -71,70 +96,6 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// setDefaults sets default values in viper
-func setDefaults(v *viper.Viper) {
-	defaults := DefaultConfig()
-
-	// Network
-	v.SetDefault("network", defaults.Network)
-
-	// Flow
-	v.SetDefault("flow.new_user_balance", defaults.Flow.NewUserBalance)
-	v.SetDefault("flow.block_time", defaults.Flow.BlockTime)
-
-	// Indexer
-	v.SetDefault("indexer.polling_interval", defaults.Indexer.PollingInterval)
-	v.SetDefault("indexer.underflow.byte_array_as_hex", defaults.Indexer.Underflow.ByteArrayAsHex)
-	v.SetDefault("indexer.underflow.show_timestamps_as_date", defaults.Indexer.Underflow.ShowTimestampsAsDate)
-	v.SetDefault("indexer.underflow.timestamp_format", defaults.Indexer.Underflow.TimestampFormat)
-
-	// Ports
-	v.SetDefault("ports.emulator.grpc", defaults.Ports.Emulator.GRPC)
-	v.SetDefault("ports.emulator.rest", defaults.Ports.Emulator.REST)
-	v.SetDefault("ports.emulator.admin", defaults.Ports.Emulator.Admin)
-	v.SetDefault("ports.emulator.debugger", defaults.Ports.Emulator.Debugger)
-	v.SetDefault("ports.dev_wallet", defaults.Ports.DevWallet)
-	v.SetDefault("ports.evm.rpc", defaults.Ports.EVM.RPC)
-	v.SetDefault("ports.evm.profiler", defaults.Ports.EVM.Profiler)
-	v.SetDefault("ports.evm.metrics", defaults.Ports.EVM.Metrics)
-
-	// EVM
-	v.SetDefault("evm.database_path", defaults.EVM.DatabasePath)
-	v.SetDefault("evm.delete_database_on_start", defaults.EVM.DeleteDatabaseOnStart)
-
-	// Logging
-	v.SetDefault("logging.level.global", defaults.Logging.Level.Global)
-	v.SetDefault("logging.level.aether", defaults.Logging.Level.Aether)
-	v.SetDefault("logging.level.emulator", defaults.Logging.Level.Emulator)
-	v.SetDefault("logging.level.dev_wallet", defaults.Logging.Level.DevWallet)
-	v.SetDefault("logging.level.evm_gateway", defaults.Logging.Level.EVMGateway)
-	v.SetDefault("logging.timestamp_format", defaults.Logging.TimestampFormat)
-	v.SetDefault("logging.color", defaults.Logging.Color)
-	v.SetDefault("logging.file.enabled", defaults.Logging.File.Enabled)
-	v.SetDefault("logging.file.path", defaults.Logging.File.Path)
-	v.SetDefault("logging.file.buffer_size", defaults.Logging.File.BufferSize)
-
-	// UI
-	v.SetDefault("ui.theme", defaults.UI.Theme)
-	v.SetDefault("ui.history.max_transactions", defaults.UI.History.MaxTransactions)
-	v.SetDefault("ui.history.max_events", defaults.UI.History.MaxEvents)
-	v.SetDefault("ui.history.max_log_lines", defaults.UI.History.MaxLogLines)
-	v.SetDefault("ui.layout.default_view", defaults.UI.Layout.DefaultView)
-	v.SetDefault("ui.layout.transactions.table_width_percent", defaults.UI.Layout.Transactions.TableWidthPercent)
-	v.SetDefault("ui.layout.transactions.detail_width_percent", defaults.UI.Layout.Transactions.DetailWidthPercent)
-	v.SetDefault("ui.layout.events.table_width_percent", defaults.UI.Layout.Events.TableWidthPercent)
-	v.SetDefault("ui.layout.events.detail_width_percent", defaults.UI.Layout.Events.DetailWidthPercent)
-	v.SetDefault("ui.defaults.show_event_fields", defaults.UI.Defaults.ShowEventFields)
-	v.SetDefault("ui.defaults.show_raw_addresses", defaults.UI.Defaults.ShowRawAddresses)
-	v.SetDefault("ui.defaults.full_detail_mode", defaults.UI.Defaults.FullDetailMode)
-	v.SetDefault("ui.defaults.time_format", defaults.UI.Defaults.TimeFormat)
-	v.SetDefault("ui.filter.char_limit", defaults.UI.Filter.CharLimit)
-	v.SetDefault("ui.filter.width", defaults.UI.Filter.Width)
-	v.SetDefault("ui.save.default_directory", defaults.UI.Save.DefaultDirectory)
-	v.SetDefault("ui.save.filename_char_limit", defaults.UI.Save.FilenameCharLimit)
-	v.SetDefault("ui.save.dialog_width", defaults.UI.Save.DialogWidth)
 }
 
 // applyLogLevelInheritance applies log level inheritance
@@ -151,6 +112,6 @@ func applyLogLevelInheritance(cfg *Config) {
 	}
 	// EVMGateway has its own default (error), so only inherit if explicitly empty
 	if cfg.Logging.Level.EVMGateway == "" {
-		cfg.Logging.Level.EVMGateway = "error"
+		cfg.Logging.Level.EVMGateway = cfg.Logging.Level.Global
 	}
 }
