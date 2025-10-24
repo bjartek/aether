@@ -11,6 +11,7 @@ import (
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
 	"github.com/bjartek/aether/pkg/logs"
+	"github.com/bjartek/aether/pkg/tabbedtui"
 	"github.com/bjartek/aether/pkg/ui"
 	tea "github.com/charmbracelet/bubbletea"
 	devWallet "github.com/onflow/fcl-dev-wallet/go/wallet"
@@ -175,7 +176,23 @@ func main() {
 		Config:  cfg,
 	}
 
-	model := ui.NewModelWithConfig(cfg, debugLogger)
+	// Create views externally for better composability
+	dashboardView := ui.NewDashboardViewWithConfig(cfg, debugLogger)
+	txView := ui.NewTransactionsViewWithConfig(cfg, debugLogger)
+	eventsView := ui.NewEventsViewWithConfig(cfg, debugLogger)
+	runnerView := ui.NewRunnerViewWithConfig(cfg, debugLogger)
+	logsView := ui.NewLogsViewWithConfig(cfg, debugLogger)
+
+	// Create model with pre-created views using new tabbedtui package
+	tabs := []tabbedtui.TabbedModelPage{dashboardView, txView, eventsView, runnerView, logsView}
+	model := tabbedtui.NewModel(tabs,
+		tabbedtui.WithTabStyle(ui.GetTabStyle()),
+		tabbedtui.WithActiveTabStyle(ui.GetActiveTabStyle()),
+		tabbedtui.WithTabGapStyle(ui.GetTabGapStyle()),
+		tabbedtui.WithHelpStyle(ui.GetHelpIndicatorStyle()),
+		tabbedtui.WithTabBarHeight(ui.TabBarHeight),
+		tabbedtui.WithFooterHelpHeight(ui.FooterHelpHeight),
+	)
 
 	// Now create the Bubble Tea program with config
 	p := tea.NewProgram(

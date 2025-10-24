@@ -119,3 +119,9 @@ var (
 	valueStyle = lipgloss.NewStyle().
 			Foreground(accentColor)
 )
+
+// Exported style getters for use with tabbedtui package
+func GetTabStyle() lipgloss.Style         { return tabStyle }
+func GetActiveTabStyle() lipgloss.Style   { return activeTabStyle }
+func GetTabGapStyle() lipgloss.Style      { return tabGap }
+func GetHelpIndicatorStyle() lipgloss.Style { return helpIndicatorStyle }

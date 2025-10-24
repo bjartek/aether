@@ -127,6 +127,16 @@ func (ev *EventsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ev.width = msg.Width
 		ev.height = msg.Height
 
+	case aether.BlockEventMsg:
+		// Handle incoming event data
+		ev.AddEvent(msg.EventData)
+		return ev, nil
+
+	case aether.OverflowReadyMsg:
+		// Set account registry when ready
+		ev.SetAccountRegistry(msg.AccountRegistry)
+		return ev, nil
+
 	case tea.KeyMsg:
 		// Handle toggle keys before forwarding to splitview
 		switch {

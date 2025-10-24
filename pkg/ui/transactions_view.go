@@ -154,6 +154,17 @@ func (tv *TransactionsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		tv.width = msg.Width
 		tv.height = msg.Height
 
+	case aether.BlockTransactionMsg:
+		// Handle incoming transaction data
+		tv.AddTransaction(msg.TransactionData)
+		return tv, nil
+
+	case aether.OverflowReadyMsg:
+		// Set overflow and account registry when ready
+		tv.SetOverflow(msg.Overflow)
+		tv.SetAccountRegistry(msg.AccountRegistry)
+		return tv, nil
+
 	case tea.KeyMsg:
 		// Handle save dialog input
 		if tv.savingMode {

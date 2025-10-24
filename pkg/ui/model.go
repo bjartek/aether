@@ -4,14 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bjartek/aether/pkg/aether"
-	"github.com/bjartek/aether/pkg/config"
-	"github.com/bjartek/aether/pkg/logs"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rs/zerolog"
 )
 
 // combinedKeyMapAdapter combines tab navigation keys and component keys
@@ -50,24 +46,19 @@ func NewCombinedKeyMap(tabKeys, componentKeys help.KeyMap) help.KeyMap {
 	}
 }
 
-// Model mimics cmd/layout pattern with TabbedModel views
-type Model struct {
-	tabs               []TabbedModel
-	activeTab          int
-	dashboardTabIdx    int
-	transactionsTabIdx int
-	eventsTabIdx       int
-	runnerTabIdx       int
-	logsTabIdx         int
-	width              int
-	height             int
-	ready              bool
-	help               HelpModel
-	headerHeight       int
-	keys               testKeyMap
+// TabbedModel mimics cmd/layout pattern with TabbedModelPage views
+type TabbedModel struct {
+	tabs         []TabbedModelPage
+	activeTab    int
+	width        int
+	height       int
+	ready        bool
+	help         HelpModel
+	headerHeight int
+	keys         TabbedModelKeyMap
 }
 
-type testKeyMap struct {
+type TabbedModelKeyMap struct {
 	NextTab key.Binding
 	PrevTab key.Binding
 	Tabs    []key.Binding
@@ -75,32 +66,25 @@ type testKeyMap struct {
 	Help    key.Binding
 }
 
-func (k testKeyMap) ShortHelp() []key.Binding {
+func (k TabbedModelKeyMap) ShortHelp() []key.Binding {
 	bindings := []key.Binding{k.NextTab, k.PrevTab}
 	bindings = append(bindings, k.Tabs...)
 	bindings = append(bindings, k.Quit, k.Help)
 	return bindings
 }
 
-func (k testKeyMap) FullHelp() [][]key.Binding {
+func (k TabbedModelKeyMap) FullHelp() [][]key.Binding {
+	// Combine tabs and navigation in one group
+	tabGroup := append([]key.Binding{k.NextTab, k.PrevTab}, k.Tabs...)
 	return [][]key.Binding{
-		k.Tabs,
-		{k.NextTab, k.PrevTab},
+		tabGroup,
 		{k.Quit, k.Help},
 	}
 }
 
-// NewModelWithConfig creates a test model with Dashboard, Transactions, Events, Runner, and Logs
-func NewModelWithConfig(cfg *config.Config, debugLogger zerolog.Logger) Model {
-	debugLogger.Debug().Msg("NewModelWithConfig called")
-
-	dashboardView := NewDashboardViewWithConfig(cfg, debugLogger)
-	txView := NewTransactionsViewWithConfig(cfg, debugLogger)
-	eventsView := NewEventsViewWithConfig(cfg, debugLogger)
-	runnerView := NewRunnerViewWithConfig(cfg, debugLogger)
-	logsView := NewLogsViewWithConfig(cfg, debugLogger)
-	tabs := []TabbedModel{dashboardView, txView, eventsView, runnerView, logsView}
-
+// NewModel creates a generic tabbed model with the provided tabs.
+// Views should be created externally and passed in for better composability.
+func NewModel(tabs []TabbedModelPage) TabbedModel {
 	// Create tab key bindings dynamically based on number of tabs
 	tabBindings := make([]key.Binding, len(tabs))
 	for i := range tabs {
@@ -112,16 +96,11 @@ func NewModelWithConfig(cfg *config.Config, debugLogger zerolog.Logger) Model {
 		)
 	}
 
-	return Model{
-		tabs:               tabs,
-		activeTab:          0,
-		dashboardTabIdx:    0,
-		transactionsTabIdx: 1,
-		eventsTabIdx:       2,
-		runnerTabIdx:       3,
-		logsTabIdx:         4,
-		help:               NewHelpModel(),
-		keys: testKeyMap{
+	return TabbedModel{
+		tabs:      tabs,
+		activeTab: 0,
+		help:      NewHelpModel(),
+		keys: TabbedModelKeyMap{
 			NextTab: key.NewBinding(
 				key.WithKeys("tab", "right", "l"),
 				key.WithHelp("tab/→/l", "next tab"),
@@ -144,7 +123,7 @@ func NewModelWithConfig(cfg *config.Config, debugLogger zerolog.Logger) Model {
 }
 
 // Init implements tea.Model
-func (m Model) Init() tea.Cmd {
+func (m TabbedModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	for _, tab := range m.tabs {
 		cmds = append(cmds, tab.Init())
@@ -154,13 +133,13 @@ func (m Model) Init() tea.Cmd {
 }
 
 // Update implements tea.Model
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m TabbedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// If active tab is capturing input, send ALL keys to it
 		if m.tabs[m.activeTab].IsCapturingInput() {
 			model, tabCmd := m.tabs[m.activeTab].Update(msg)
-			m.tabs[m.activeTab] = model.(TabbedModel)
+			m.tabs[m.activeTab] = model.(TabbedModelPage)
 			return m, tabCmd
 		}
 
@@ -186,7 +165,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Forward to active tab - let it handle keys like "/"
 		model, tabCmd := m.tabs[m.activeTab].Update(msg)
-		m.tabs[m.activeTab] = model.(TabbedModel)
+		m.tabs[m.activeTab] = model.(TabbedModelPage)
 
 		// Return the command from the tab (don't execute it)
 		// This allows async commands like ExecutionCompleteMsg to work properly
@@ -204,7 +183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			for i := range m.tabs {
 				model, _ := m.tabs[i].Update(adjustedMsg)
-				m.tabs[i] = model.(TabbedModel)
+				m.tabs[i] = model.(TabbedModelPage)
 			}
 			return m, nil
 		}
@@ -224,64 +203,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		for i := range m.tabs {
 			model, _ := m.tabs[i].Update(adjustedMsg)
-			m.tabs[i] = model.(TabbedModel)
+			m.tabs[i] = model.(TabbedModelPage)
 		}
 		return m, nil
 
-	case aether.BlockTransactionMsg:
-		// Forward transaction to transactions tab
-		if txView, ok := m.tabs[m.transactionsTabIdx].(*TransactionsView); ok {
-			txView.AddTransaction(msg.TransactionData)
+	default:
+		// Broadcast all other messages to all tabs
+		// Each tab decides whether to handle the message
+		var cmds []tea.Cmd
+		for i := range m.tabs {
+			model, cmd := m.tabs[i].Update(msg)
+			m.tabs[i] = model.(TabbedModelPage)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
-		return m, nil
-
-	case aether.BlockEventMsg:
-		// Forward event to events tab
-		if eventsView, ok := m.tabs[m.eventsTabIdx].(*EventsView); ok {
-			eventsView.AddEvent(msg.EventData)
-		}
-		return m, nil
-
-	case logs.LogLineMsg:
-		// Forward log message to logs tab only
-		_, cmd := m.tabs[m.logsTabIdx].Update(msg)
-		return m, cmd
-
-	case ExecutionCompleteMsg:
-		// Forward execution result to runner tab
-		model, cmd := m.tabs[m.runnerTabIdx].Update(msg)
-		m.tabs[m.runnerTabIdx] = model.(TabbedModel)
-		return m, cmd
-
-	case RescanFilesMsg:
-		// Forward rescan message to runner tab
-		model, cmd := m.tabs[m.runnerTabIdx].Update(msg)
-		m.tabs[m.runnerTabIdx] = model.(TabbedModel)
-		return m, cmd
-
-	case aether.OverflowReadyMsg:
-		// Set overflow and account registry in transactions and events views
-		if txView, ok := m.tabs[m.transactionsTabIdx].(*TransactionsView); ok {
-			txView.SetOverflow(msg.Overflow)
-			txView.SetAccountRegistry(msg.AccountRegistry)
-		}
-		if eventsView, ok := m.tabs[m.eventsTabIdx].(*EventsView); ok {
-			eventsView.SetAccountRegistry(msg.AccountRegistry)
-		}
-		// Set overflow and account registry in runner view
-		if runnerView, ok := m.tabs[m.runnerTabIdx].(*RunnerView); ok {
-			runnerView.SetOverflow(msg.Overflow)
-			runnerView.SetAccountRegistry(msg.AccountRegistry)
-		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 	}
-
-	// Footer doesn't handle any messages
-	return m, nil
 }
 
 // calculateContentHeight returns available height for content (matching cmd/layout)
-func (m Model) calculateContentHeight() int {
+func (m TabbedModel) calculateContentHeight() int {
 	headerHeight := m.headerHeight
 	if headerHeight == 0 {
 		headerHeight = TabBarHeight
@@ -294,7 +236,7 @@ func (m Model) calculateContentHeight() int {
 }
 
 // View implements tea.Model (matching cmd/layout pattern)
-func (m Model) View() string {
+func (m TabbedModel) View() string {
 	if !m.ready {
 		return "Initializing..."
 	}
@@ -346,7 +288,7 @@ func (m Model) View() string {
 }
 
 // renderHeader renders tab bar using theme styles from styles.go
-func (m Model) renderHeader() string {
+func (m TabbedModel) renderHeader() string {
 	// Render all tabs using theme styles
 	var tabs []string
 	for i, tab := range m.tabs {

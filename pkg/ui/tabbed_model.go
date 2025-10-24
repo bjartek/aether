@@ -14,8 +14,8 @@ func InputHandled() tea.Cmd {
 	return func() tea.Msg { return InputHandledMsg{} }
 }
 
-// TabbedModel defines the interface for models that can be used as tabs
-type TabbedModel interface {
+// TabbedModelPage defines the interface for models that can be used as tabs
+type TabbedModelPage interface {
 	tea.Model
 	
 	// Name returns the display name for this tab

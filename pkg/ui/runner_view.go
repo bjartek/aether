@@ -249,6 +249,12 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Int("height", msg.Height).
 			Msg("WindowSizeMsg received")
 
+	case aether.OverflowReadyMsg:
+		// Set overflow and account registry when ready
+		rv.SetOverflow(msg.Overflow)
+		rv.SetAccountRegistry(msg.AccountRegistry)
+		return rv, nil
+
 	case RescanFilesMsg:
 		// Rescan files and rebuild rows
 		rv.logger.Info().Msg("RescanFilesMsg received - rescanning files")
