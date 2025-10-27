@@ -88,7 +88,16 @@ type TransactionsView struct {
 	saveInput        textinput.Model          // Input for save filename
 	saveError        string                   // Error message from last save attempt
 	saveSuccess      string                   // Success message from last save
+	txSourceMap      map[string]txSourceInfo  // Maps transaction ID to source info
 	logger           zerolog.Logger           // Debug logger
+}
+
+const sourceColumnWidth = 25
+
+// txSourceInfo tracks which file executed a transaction
+type txSourceInfo struct {
+	SourceFile string
+	IsInit     bool
 }
 
 // NewTransactionsViewWithConfig creates a new v2 transactions view based on splitview
@@ -99,12 +108,13 @@ func NewTransactionsViewWithConfig(cfg *config.Config, logger zerolog.Logger) *T
 	}
 
 	columns := []splitview.ColumnConfig{
-		{Name: "Time", Width: 8},  // Execution time
-		{Name: "ID", Width: 9},    // Truncated hex (first 3 + ... + last 3)
-		{Name: "Block", Width: 5}, // Block numbers
-		{Name: "Auth", Width: 18}, // Authorizer
-		{Name: "Type", Width: 5},  // Transaction type
-		{Name: "Status", Width: 8},
+		{Name: "Time", Width: 8},    // Execution time
+		{Name: "ID", Width: 9},      // Truncated hex (first 3 + ... + last 3)
+		{Name: "Block", Width: 5},   // Block numbers
+		{Name: "Auth", Width: 18},   // Authorizer
+		{Name: "Type", Width: 5},    // Transaction type
+		{Name: "Status", Width: 8},  // Status
+		{Name: "Source", Width: sourceColumnWidth}, // Source file
 	}
 
 	// Table styles (reuse v1 styles)
@@ -140,6 +150,7 @@ func NewTransactionsViewWithConfig(cfg *config.Config, logger zerolog.Logger) *T
 		showRawAddresses: cfg.UI.Defaults.ShowRawAddresses,
 		timeFormat:       cfg.UI.Defaults.TimeFormat,
 		saveInput:        saveInput,
+		txSourceMap:      make(map[string]txSourceInfo),
 		logger:           logger,
 	}
 }
@@ -165,6 +176,29 @@ func (tv *TransactionsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Set overflow and account registry when ready
 		tv.SetOverflow(msg.Overflow)
 		tv.SetAccountRegistry(msg.AccountRegistry)
+		return tv, nil
+
+	case aether.TransactionSourceMsg:
+		// Store transaction source info
+		tv.txSourceMap[msg.TransactionID] = txSourceInfo{
+			SourceFile: msg.SourceFile,
+			IsInit:     msg.IsInit,
+		}
+		tv.logger.Debug().
+			Str("txID", msg.TransactionID).
+			Str("sourceFile", msg.SourceFile).
+			Bool("isInit", msg.IsInit).
+			Msg("Stored transaction source info")
+		
+		// If we already have this transaction, update it
+		for i, tx := range tv.transactions {
+			if tx.ID == msg.TransactionID {
+				tv.transactions[i].SourceFile = msg.SourceFile
+				tv.transactions[i].IsInit = msg.IsInit
+				tv.refreshAllRows()
+				break
+			}
+		}
 		return tv, nil
 
 	case tea.KeyMsg:
@@ -315,6 +349,12 @@ func (tv *TransactionsView) SetOverflow(o *overflow.OverflowState) {
 
 // AddTransaction accepts prebuilt TransactionData and converts it to a splitview row
 func (tv *TransactionsView) AddTransaction(txData aether.TransactionData) {
+	// Check if we have source info for this transaction
+	if sourceInfo, exists := tv.txSourceMap[txData.ID]; exists {
+		txData.SourceFile = sourceInfo.SourceFile
+		txData.IsInit = sourceInfo.IsInit
+	}
+
 	// Store transaction data for rebuilding (always append to internal array)
 	tv.transactions = append(tv.transactions, txData)
 
@@ -343,6 +383,19 @@ func (tv *TransactionsView) addTransactionRow(txData aether.TransactionData) {
 		}
 	}
 
+	// Format source display
+	sourceDisplay := ""
+	if txData.SourceFile != "" {
+		sourceDisplay = txData.SourceFile
+		if txData.IsInit {
+			sourceDisplay = "*" + sourceDisplay
+		}
+		// Truncate if too long
+		if len(sourceDisplay) > sourceColumnWidth {
+			sourceDisplay = sourceDisplay[:sourceColumnWidth-3] + "..."
+		}
+	}
+
 	row := table.Row{
 		txData.Timestamp.Format(tv.timeFormat),
 		truncateHex(txData.ID, 3, 3),
@@ -350,6 +403,7 @@ func (tv *TransactionsView) addTransactionRow(txData aether.TransactionData) {
 		authDisplay,
 		string(txData.Type),
 		txData.Status,
+		sourceDisplay,
 	}
 
 	// Build detail content/code using the extracted helpers
@@ -401,6 +455,19 @@ func (tv *TransactionsView) refreshCurrentRow() {
 		}
 	}
 
+	// Format source display
+	sourceDisplay := ""
+	if txData.SourceFile != "" {
+		sourceDisplay = txData.SourceFile
+		if txData.IsInit {
+			sourceDisplay = "*" + sourceDisplay
+		}
+		// Truncate if too long
+		if len(sourceDisplay) > sourceColumnWidth {
+			sourceDisplay = sourceDisplay[:sourceColumnWidth-3] + "..."
+		}
+	}
+
 	row := table.Row{
 		txData.Timestamp.Format(tv.timeFormat),
 		truncateHex(txData.ID, 3, 3),
@@ -408,6 +475,7 @@ func (tv *TransactionsView) refreshCurrentRow() {
 		authDisplay,
 		string(txData.Type),
 		txData.Status,
+		sourceDisplay,
 	}
 
 	// Build detail content/code with current toggle states

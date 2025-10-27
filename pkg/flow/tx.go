@@ -13,8 +13,8 @@ import (
 // RunInitTransactions runs initialization transactions from both .cdc and .json files
 // cdcOverflow is used for .cdc files, jsonOverflow is used for .json config files
 // Only processes files in the root validPath directory - does NOT recurse into subdirectories
-// progressCallback is called for each transaction with (filename, success, errorMsg)
-func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *overflow.OverflowState, validPath string, logger *zerolog.Logger, progressCallback func(string, bool, string)) error {
+// progressCallback is called for each transaction with (filename, success, errorMsg, transactionID)
+func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *overflow.OverflowState, validPath string, logger *zerolog.Logger, progressCallback func(string, bool, string, string)) error {
 	err := filepath.Walk(validPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -32,9 +32,13 @@ func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *over
 		
 		// Handle .json configuration files
 		if ext == ".json" {
+			baseName := strings.TrimSuffix(info.Name(), ext)
 			config, err := LoadTransactionConfig(path)
 			if err != nil {
 				logger.Error().Err(err).Str("file", info.Name()).Msg("Failed to load transaction config")
+				if progressCallback != nil {
+					progressCallback(baseName, false, err.Error(), "")
+				}
 				return err
 			}
 
@@ -64,14 +68,14 @@ func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *over
 					Str("error", res.Err.Error()).
 					Msg("Failed to run init transaction from config")
 				if progressCallback != nil {
-					progressCallback(info.Name(), false, res.Err.Error())
+					progressCallback(baseName, false, res.Err.Error(), "")
 				}
 				return res.Err
 			}
 			
 			logger.Info().Str("config", info.Name()).Str("transaction", config.Name).Msgf("%v Ran init transaction from config", emoji.Scroll)
 			if progressCallback != nil {
-				progressCallback(info.Name(), true, "")
+				progressCallback(baseName, true, "", res.Id.String())
 			}
 			return nil
 		}
@@ -86,13 +90,13 @@ func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *over
 					Str("error", res.Err.Error()).
 					Msg("Failed to run init transaction from .cdc file")
 				if progressCallback != nil {
-					progressCallback(info.Name(), false, res.Err.Error())
+					progressCallback(fileName, false, res.Err.Error(), "")
 				}
 				return res.Err
 			}
 			logger.Info().Str("file", fileName).Msgf("%v Ran init transaction", emoji.Scroll)
 			if progressCallback != nil {
-				progressCallback(info.Name(), true, "")
+				progressCallback(fileName, true, "", res.Id.String())
 			}
 			return nil
 		}

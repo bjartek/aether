@@ -61,7 +61,7 @@ func DefaultConfig() *Config {
 				MaxLogLines:     10000,
 			},
 			Layout: LayoutConfig{
-				TransactionsSplitPercent: 40,
+				TransactionsSplitPercent: 50,
 				EventsSplitPercent:       50,
 				RunnerSplitPercent:       40,
 			},

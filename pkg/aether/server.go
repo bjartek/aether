@@ -101,6 +101,8 @@ type TransactionData struct {
 	Error             string
 	Timestamp         time.Time
 	Index             int
+	SourceFile        string // Filename that executed this transaction (from runner or init)
+	IsInit            bool   // True if this was an init transaction
 }
 
 // TransactionMsg is sent when a new transaction is received
@@ -116,9 +118,17 @@ type OverflowReadyMsg struct {
 
 // InitTransactionMsg is sent when an init transaction executes
 type InitTransactionMsg struct {
-	Filename string
-	Success  bool
-	Error    string
+	Filename      string
+	Success       bool
+	Error         string
+	TransactionID string // Transaction ID if available
+}
+
+// TransactionSourceMsg tracks which file executed a transaction
+type TransactionSourceMsg struct {
+	TransactionID string
+	SourceFile    string
+	IsInit        bool
 }
 
 // BlockHeightMsg is sent periodically with the latest block height
@@ -500,13 +510,22 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			}
 
 			// Use same overflow state for both .cdc and .json files
-			if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger, func(filename string, success bool, errorMsg string) {
+			if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger, func(filename string, success bool, errorMsg string, txID string) {
 				// Send progress update to UI
 				teaProgram.Send(InitTransactionMsg{
-					Filename: filename,
-					Success:  success,
-					Error:    errorMsg,
+					Filename:      filename,
+					Success:       success,
+					Error:         errorMsg,
+					TransactionID: txID,
 				})
+				// Send transaction source tracking
+				if success && txID != "" {
+					teaProgram.Send(TransactionSourceMsg{
+						TransactionID: txID,
+						SourceFile:    filename,
+						IsInit:        true,
+					})
+				}
 			}); err != nil {
 				return err
 			}
@@ -567,13 +586,22 @@ func (a *Aether) RunInitTransactionsWithFolder(selectedFolder string) error {
 		Msg("Running init transactions from selected folder")
 	
 	// Run init transactions
-	if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger, func(filename string, success bool, errorMsg string) {
+	if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger, func(filename string, success bool, errorMsg string, txID string) {
 		// Send progress update to UI
 		teaProgram.Send(InitTransactionMsg{
-			Filename: filename,
-			Success:  success,
-			Error:    errorMsg,
+			Filename:      filename,
+			Success:       success,
+			Error:         errorMsg,
+			TransactionID: txID,
 		})
+		// Send transaction source tracking
+		if success && txID != "" {
+			teaProgram.Send(TransactionSourceMsg{
+				TransactionID: txID,
+				SourceFile:    filename,
+				IsInit:        true,
+			})
+		}
 	}); err != nil {
 		a.Logger.Error().Err(err).Msg("Failed to run init transactions")
 		return err

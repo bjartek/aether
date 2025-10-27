@@ -693,6 +693,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear executing flag
 		rv.executing = false
 
+		var cmd tea.Cmd
 		if msg.Error != nil {
 			rv.executionError = msg.Error
 			rv.executionResult = ""
@@ -712,6 +713,19 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rv.executionResult = ""
 				} else {
 					rv.executionResult = rv.formatTransactionResult(msg.TxResult)
+					
+					// Send transaction source message for tracking
+					selectedIdx := rv.sv.GetCursor()
+					if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+						script := rv.scripts[selectedIdx]
+						cmd = func() tea.Msg {
+							return aether.TransactionSourceMsg{
+								TransactionID: msg.TxResult.Id.String(),
+								SourceFile:    script.Name,
+								IsInit:        false,
+							}
+						}
+					}
 				}
 			} else {
 				rv.executionResult = "✓ Execution successful"
@@ -724,7 +738,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			script := rv.scripts[selectedIdx]
 			rv.refreshDetailContent(selectedIdx, script)
 		}
-		return rv, nil
+		return rv, cmd
 	}
 
 	// If we get here, the message is being passed to splitview
