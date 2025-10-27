@@ -1538,7 +1538,7 @@ func (rv *RunnerView) buildScriptDetail(script ScriptFile) string {
 	} else if rv.executionResult != "" {
 		details.WriteString(lipgloss.NewStyle().
 			Foreground(successColor).
-			Render(fmt.Sprintf("\n✓ %s\n\n", rv.executionResult)))
+			Render(fmt.Sprintf("\n%s\n\n", rv.executionResult)))
 	}
 
 	// Add code section header (matches transactions view format)
