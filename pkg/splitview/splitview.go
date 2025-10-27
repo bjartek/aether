@@ -74,32 +74,32 @@ type SplitViewModel struct {
 
 // KeyMap defines key bindings for the split view
 type KeyMap struct {
-	ToggleFullscreen key.Binding
-	ExitFullscreen   key.Binding
+	EnterFullscreen key.Binding
+	ExitFullscreen  key.Binding
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.ExitFullscreen, k.ToggleFullscreen}
+	return []key.Binding{k.ExitFullscreen, k.EnterFullscreen}
 }
 
 // FullHelp returns keybindings for the expanded help view
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.ToggleFullscreen, k.ExitFullscreen},
+		{k.EnterFullscreen, k.ExitFullscreen},
 	}
 }
 
 // NewKeyMap creates the default key bindings for the split view
 func NewKeyMap() KeyMap {
 	return KeyMap{
-		ToggleFullscreen: key.NewBinding(
+		EnterFullscreen: key.NewBinding(
 			key.WithKeys(" ", "enter"),
-			key.WithHelp("space/enter", "toggle fullscreen"),
+			key.WithHelp("space/enter", "enter fullscreen"),
 		),
 		ExitFullscreen: key.NewBinding(
 			key.WithKeys("esc"),
-			key.WithHelp("esc", "exit fullscreen/help"),
+			key.WithHelp("esc", "exit fullscreen"),
 		),
 	}
 }
@@ -194,9 +194,12 @@ func (m *SplitViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Handle our custom keys first using key.Matches
 		switch {
-		case key.Matches(msg, m.Keys.ToggleFullscreen):
-			m.fullDetailMode = !m.fullDetailMode
-			return m, nil
+		case key.Matches(msg, m.Keys.EnterFullscreen):
+			// Only enter fullscreen, don't toggle
+			if !m.fullDetailMode {
+				m.fullDetailMode = true
+				return m, nil
+			}
 		case key.Matches(msg, m.Keys.ExitFullscreen):
 			if m.fullDetailMode {
 				m.fullDetailMode = false

@@ -75,15 +75,14 @@ type InputField struct {
 
 // RunnerKeyMap defines keybindings for the runner view
 type RunnerKeyMap struct {
-	Up               key.Binding
-	Down             key.Binding
-	Enter            key.Binding
-	Run              key.Binding
-	NextField        key.Binding
-	PrevField        key.Binding
-	Save             key.Binding
-	Refresh          key.Binding
-	ToggleFullDetail key.Binding
+	Up        key.Binding
+	Down      key.Binding
+	Enter     key.Binding
+	Run       key.Binding
+	NextField key.Binding
+	PrevField key.Binding
+	Save      key.Binding
+	Refresh   key.Binding
 }
 
 // DefaultRunnerKeyMap returns the default keybindings for runner view
@@ -98,8 +97,8 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 			key.WithHelp("j/↓", "down"),
 		),
 		Enter: key.NewBinding(
-			key.WithKeys("enter", " "),
-			key.WithHelp("enter/space", "toggle detail"),
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "toggle detail"),
 		),
 		Run: key.NewBinding(
 			key.WithKeys("r"),
@@ -120,10 +119,6 @@ func DefaultRunnerKeyMap() RunnerKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("ctrl+l", "x"),
 			key.WithHelp("ctrl+l/x", "refresh list"),
-		),
-		ToggleFullDetail: key.NewBinding(
-			key.WithKeys("enter", " "),
-			key.WithHelp("enter/space", "toggle detail"),
 		),
 	}
 }
@@ -556,7 +551,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle enter/space to toggle fullscreen and build forms
-		if key.Matches(msg, rv.keys.Enter) || key.Matches(msg, rv.keys.ToggleFullDetail) {
+		if key.Matches(msg, rv.keys.Enter) {
 			wasFullscreen := rv.sv.IsFullscreen()
 
 			// Build input fields BEFORE toggling fullscreen

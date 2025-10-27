@@ -93,7 +93,7 @@ func (dv *DashboardView) View() string {
 
 	// Guidelines section
 	content += sectionStyle.Render(
-		labelStyle.Render("Guidelines:") + "\n" +
+		labelStyle.Render("\nGuidelines:") + "\n" +
 			dv.renderGuidelines(),
 	)
 
@@ -149,7 +149,7 @@ func (dv *DashboardView) renderServices() string {
 }
 
 func (dv *DashboardView) renderGuidelines() string {
-	guidelines := `  Aether is an alternative cli for the Flow blockchain.
+	guidelines := `  Aether is an alternatate cli for the Flow blockchain.
   It combines multiple Flow CLI tools into a unified interface.
 
   Key Features:
