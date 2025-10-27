@@ -152,11 +152,12 @@ type RunnerView struct {
 	editingField     bool
 	availableSigners []string
 	savingConfig     bool
-	saveInput        textinput.Model
-	saveError        string
-	executing        bool // True when script is executing
-	lastSelectedIdx  int  // Track last selected index to detect navigation
-	logger           zerolog.Logger
+	saveInput           textinput.Model
+	saveError           string
+	executing           bool // True when script is executing
+	lastSelectedIdx     int  // Track last selected index to detect navigation
+	showRunConfirmation bool // True when showing run confirmation dialog
+	logger              zerolog.Logger
 }
 
 // NewRunnerViewWithConfig creates a new v2 runner view
@@ -288,6 +289,38 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Int("inputFieldsCount", len(rv.inputFields)).
 			Msg("KeyPress received")
 
+		// Handle run confirmation dialog
+		if rv.showRunConfirmation {
+			switch {
+			case key.Matches(msg, rv.keys.Enter), key.Matches(msg, rv.keys.Run):
+				// Run the script
+				rv.showRunConfirmation = false
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) && rv.overflow != nil {
+					script := rv.scripts[selectedIdx]
+					rv.executionResult = ""
+					rv.executionError = nil
+					rv.executing = true
+					rv.refreshDetailContent(selectedIdx, script)
+					return rv, rv.executeScript(script)
+				}
+				return rv, nil
+
+			case msg.Type == tea.KeyEsc:
+				// Cancel run
+				rv.showRunConfirmation = false
+				selectedIdx := rv.sv.GetCursor()
+				if selectedIdx >= 0 && selectedIdx < len(rv.scripts) {
+					rv.refreshDetailContent(selectedIdx, rv.scripts[selectedIdx])
+				}
+				return rv, nil
+
+			default:
+				// Ignore other keys
+				return rv, nil
+			}
+		}
+
 		// Handle save dialog input
 		if rv.savingConfig {
 			switch {
@@ -391,7 +424,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle form editing (when actively typing in a field)
-		if rv.editingField && len(rv.inputFields) > 0 {
+		if rv.editingField && len(rv.inputFields) > 0 && !rv.showRunConfirmation {
 			switch {
 			case msg.Type == tea.KeyEsc:
 				// Exit editing mode, blur field, stay in field navigation mode
@@ -459,7 +492,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle field navigation (when in fullscreen with fields but not editing)
-		if !rv.editingField && len(rv.inputFields) > 0 && rv.sv.IsFullscreen() {
+		if !rv.editingField && len(rv.inputFields) > 0 && rv.sv.IsFullscreen() && !rv.showRunConfirmation {
 			switch {
 			case msg.Type == tea.KeyTab:
 				// Tab: move to next field
@@ -566,13 +599,15 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rv.executionResult = ""
 					rv.executionError = nil
 					rv.executing = false
+					rv.showRunConfirmation = false
 
-					// Start in navigation mode (not editing) so user can press 'r' to run
-					// or Enter to start editing the first field
-					rv.activeFieldIndex = 0
-					rv.editingField = false
-					if len(rv.inputFields) > 0 {
-						// Focus but don't start editing - user presses Enter to edit
+					// If no input fields, show run confirmation dialog
+					if len(rv.inputFields) == 0 {
+						rv.showRunConfirmation = true
+					} else {
+						// If there are input fields, immediately start editing the first one
+						rv.activeFieldIndex = 0
+						rv.editingField = true
 						rv.inputFields[0].Input.Focus()
 					}
 				}
@@ -597,6 +632,7 @@ func (rv *RunnerView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				rv.executionResult = ""
 				rv.executionError = nil
 				rv.executing = false
+				rv.showRunConfirmation = false
 
 				// Refresh detail content to show cleared state
 				selectedIdx := rv.sv.GetCursor()
@@ -762,7 +798,7 @@ func (rv *RunnerView) FooterView() string {
 
 // IsCapturingInput implements TabbedModel interface
 func (rv *RunnerView) IsCapturingInput() bool {
-	return rv.editingField || rv.savingConfig
+	return rv.editingField || rv.savingConfig || rv.showRunConfirmation
 }
 
 // SetOverflow sets the overflow state for script execution
@@ -1394,9 +1430,18 @@ func (rv *RunnerView) buildScriptDetail(script ScriptFile) string {
 	rv.logger.Debug().
 		Bool("isFullscreen", rv.sv.IsFullscreen()).
 		Int("inputFieldsCount", len(rv.inputFields)).
+		Bool("showRunConfirmation", rv.showRunConfirmation).
 		Msg("buildScriptDetail checking if should show input fields")
 
-	if rv.sv.IsFullscreen() && len(rv.inputFields) > 0 {
+	// Show run confirmation dialog if active
+	if rv.showRunConfirmation {
+		confirmStyle := lipgloss.NewStyle().
+			Foreground(accentColor).
+			Bold(true)
+		
+		details.WriteString("\n" + confirmStyle.Render("Run this script?") + "\n\n")
+		details.WriteString(fieldStyle.Render("Press 'r' or 'enter' to run, 'esc' to cancel") + "\n")
+	} else if rv.sv.IsFullscreen() && len(rv.inputFields) > 0 {
 		// In fullscreen mode - show interactive input fields separated by type
 
 		// Show signers section
