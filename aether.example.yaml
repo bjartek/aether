@@ -7,66 +7,66 @@ network: emulator
 
 # Flow blockchain settings
 flow:
-  new_user_balance: 1000.0              # Initial balance for new accounts (FLOW tokens)
-  block_time: 1s                        # Block production time
-  init_transactions_folder: ""          # Subfolder to run init transactions from (empty = root aether folder)
-  init_transactions_interactive: false  # If true, prompt user to select folder at startup
+  new_user_balance: 1000.0 # Initial balance for new accounts (FLOW tokens)
+  block_time: 1s # Block production time
+  init_transactions_folder: "" # Subfolder to run init transactions from (empty = root aether folder)
+  init_transactions_interactive: false # If true, prompt user to select folder at startup
 
 # Indexer settings for monitoring blockchain events
 indexer:
-  polling_interval: 200ms       # How often to poll for new blocks
+  polling_interval: 200ms # How often to poll for new blocks
   underflow:
-    byte_array_as_hex: true     # Display byte arrays as hex strings
-    show_timestamps_as_date: true  # Show timestamps in human-readable format
-    timestamp_format: "2006-01-02 15:04:05 UTC"  # Go time format string
+    byte_array_as_hex: true # Display byte arrays as hex strings
+    show_timestamps_as_date: true # Show timestamps in human-readable format
+    timestamp_format: "2006-01-02 15:04:05 UTC" # Go time format string
 
 # Port configurations
 ports:
   emulator:
-    grpc: 3569                  # Flow emulator gRPC port
-    rest: 8888                  # Flow emulator REST API port
-    admin: 8080                 # Flow emulator admin port
-    debugger: 2345              # Flow emulator debugger port
-  dev_wallet: 8701              # Dev wallet port
+    grpc: 3569 # Flow emulator gRPC port
+    rest: 8888 # Flow emulator REST API port
+    admin: 8080 # Flow emulator admin port
+    debugger: 2345 # Flow emulator debugger port
+  dev_wallet: 8701 # Dev wallet port
   evm:
-    rpc: 8545                   # EVM gateway JSON-RPC port
-    profiler: 6060              # EVM gateway profiler port
-    metrics: 9091               # EVM gateway metrics port
+    rpc: 8545 # EVM gateway JSON-RPC port
+    profiler: 6060 # EVM gateway profiler port
+    metrics: 9091 # EVM gateway metrics port
 
 # EVM gateway settings
 evm:
-  database_path: "evm-gateway-db"  # Path to EVM gateway database
-  delete_database_on_start: true   # Clear database on startup
+  database_path: "evm-gateway-db" # Path to EVM gateway database
+  delete_database_on_start: true # Clear database on startup
 
 # Logging configuration
 logging:
   level:
-    global: info                # Global log level (debug, info, warn, error)
-    aether: ""                  # Aether log level (empty = inherit global)
-    emulator: ""                # Emulator log level (empty = inherit global)
-    dev_wallet: ""              # Dev wallet log level (empty = inherit global)
-    evm_gateway: error          # EVM gateway log level
-  timestamp_format: "15:04:05"  # Time format for log timestamps
-  color: true                   # Enable colored output
+    global: info # Global log level (debug, info, warn, error)
+    aether: "" # Aether log level (empty = inherit global)
+    emulator: "" # Emulator log level (empty = inherit global)
+    dev_wallet: "" # Dev wallet log level (empty = inherit global)
+    evm_gateway: error # EVM gateway log level
+  timestamp_format: "15:04:05" # Time format for log timestamps
+  color: true # Enable colored output
   file:
-    enabled: false              # Enable file logging
-    path: ""                    # Log file path (e.g., "aether.log")
-    buffer_size: 1000           # Log buffer size
+    enabled: false # Enable file logging
+    path: "" # Log file path (e.g., "aether.log")
+    buffer_size: 1000 # Log buffer size
 
 # UI preferences
 ui:
   history:
-    max_transactions: 10000     # Maximum transactions to keep in history
-    max_events: 10000           # Maximum events to keep in history
-    max_log_lines: 10000        # Maximum log lines to keep in history
-  
+    max_transactions: 10000 # Maximum transactions to keep in history
+    max_events: 10000 # Maximum events to keep in history
+    max_log_lines: 10000 # Maximum log lines to keep in history
+
   layout:
-    transactions_split_percent: 40  # Table width as percentage (0-100)
-    events_split_percent: 50        # Table width as percentage (0-100)
-    runner_split_percent: 40        # Table width as percentage (0-100)
-  
+    transactions_split_percent: 40 # Table width as percentage (0-100)
+    events_split_percent: 50 # Table width as percentage (0-100)
+    runner_split_percent: 40 # Table width as percentage (0-100)
+
   defaults:
-    show_event_fields: true     # Show event fields in transaction details
-    show_raw_addresses: false   # Show raw addresses instead of account names
-    time_format: "15:04:05"     # Time format for UI timestamps
-    sort: "desc"                # Sort order for transactions and events ("asc" = oldest first, "desc" = newest first)
+    show_event_fields: true # Show event fields in transaction details
+    show_raw_addresses: false # Show raw addresses instead of account names
+    time_format: "15:04:05" # Time format for UI timestamps
+    sort: "asc" # Sort order for transactions and events ("asc" = oldest first, "desc" = newest first)
