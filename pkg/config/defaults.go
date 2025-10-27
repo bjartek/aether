@@ -7,9 +7,10 @@ func DefaultConfig() *Config {
 	return &Config{
 		Network: "emulator",
 		Flow: FlowConfig{
-			NewUserBalance:         1000.0,
-			BlockTime:              1 * time.Second,
-			InitTransactionsFolder: "", // Empty string means use root aether folder (no subfolder filtering)
+			NewUserBalance:             1000.0,
+			BlockTime:                  1 * time.Second,
+			InitTransactionsFolder:     "", // Empty string means use root aether folder (no subfolder filtering)
+			InitTransactionsInteractive: true, // If true, prompt user to select folder at startup
 		},
 		Indexer: IndexerConfig{
 			PollingInterval: 200 * time.Millisecond,

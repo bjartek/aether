@@ -177,7 +177,7 @@ func main() {
 	}
 
 	// Create views externally for better composability
-	dashboardView := ui.NewDashboardViewWithConfig(cfg, debugLogger)
+	dashboardView := ui.NewDashboardViewWithConfig(cfg, debugLogger, &a)
 	txView := ui.NewTransactionsViewWithConfig(cfg, debugLogger)
 	eventsView := ui.NewEventsViewWithConfig(cfg, debugLogger)
 	runnerView := ui.NewRunnerViewWithConfig(cfg, debugLogger)

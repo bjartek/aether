@@ -34,6 +34,13 @@ type DashboardView struct {
 	accountRegistry *aether.AccountRegistry
 	accounts        []string
 
+	// Folder selection (for interactive init transaction mode)
+	folderSelection     *aether.InitFolderSelectionMsg
+	selectedFolderIndex int
+	selectedInitFolder  string         // The folder being used for init transactions (empty = root)
+	interactiveMode     bool           // If true, user needs to select folder
+	aetherServer        *aether.Aether // Reference to server for running init transactions
+
 	// Layout
 	width  int
 	height int
@@ -52,8 +59,8 @@ type InitTransactionStatus struct {
 	Error    string
 }
 
-// NewDashboardViewWithConfig creates a new dashboard view
-func NewDashboardViewWithConfig(cfg *config.Config, logger zerolog.Logger) *DashboardView {
+// NewDashboardViewWithConfig creates a new dashboard view with given config
+func NewDashboardViewWithConfig(cfg *config.Config, logger zerolog.Logger, aetherServer *aether.Aether) *DashboardView {
 	// Fallback to defaults when cfg is nil
 	if cfg == nil {
 		cfg = config.DefaultConfig()
@@ -71,17 +78,22 @@ func NewDashboardViewWithConfig(cfg *config.Config, logger zerolog.Logger) *Dash
 	}
 
 	return &DashboardView{
-		services:          services,
-		servicesReady:     false,
-		initTransactions:  []InitTransactionStatus{},
-		initComplete:      false,
-		latestBlockHeight: 0,
-		network:           cfg.Network,
-		blockTime:         cfg.Flow.BlockTime.String(),
-		indexerPolling:    cfg.Indexer.PollingInterval.String(),
-		accountRegistry:   nil,
-		accounts:          []string{},
-		logger:            logger,
+		services:            services,
+		servicesReady:       false,
+		initTransactions:    []InitTransactionStatus{},
+		initComplete:        false,
+		latestBlockHeight:   0,
+		network:             cfg.Network,
+		blockTime:           cfg.Flow.BlockTime.String(),
+		indexerPolling:      cfg.Indexer.PollingInterval.String(),
+		accountRegistry:     nil,
+		accounts:            []string{},
+		folderSelection:     nil,
+		selectedFolderIndex: 0,
+		selectedInitFolder:  cfg.Flow.InitTransactionsFolder, // Store configured folder
+		interactiveMode:     cfg.Flow.InitTransactionsInteractive,
+		aetherServer:        aetherServer,
+		logger:              logger,
 	}
 }
 
@@ -126,6 +138,53 @@ func (dv *DashboardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update block height
 		if msg.Height > dv.latestBlockHeight {
 			dv.latestBlockHeight = msg.Height
+		}
+
+	case aether.InitFolderSelectionMsg:
+		// Store folder selection options
+		dv.folderSelection = &msg
+		dv.selectedFolderIndex = 0
+		dv.logger.Debug().
+			Int("folderCount", len(msg.Folders)).
+			Msg("Folder selection received")
+
+	case tea.KeyMsg:
+		// Handle folder selection navigation
+		if dv.folderSelection != nil {
+			switch msg.String() {
+			case "up", "k":
+				if dv.selectedFolderIndex > 0 {
+					dv.selectedFolderIndex--
+				}
+				return dv, nil
+			case "down", "j":
+				if dv.selectedFolderIndex < len(dv.folderSelection.Folders)-1 {
+					dv.selectedFolderIndex++
+				}
+				return dv, nil
+			case "enter":
+				// Run init transactions with selected folder
+				selectedFolder := dv.folderSelection.Folders[dv.selectedFolderIndex]
+				dv.logger.Info().
+					Int("index", dv.selectedFolderIndex).
+					Str("folder", selectedFolder).
+					Msg("User selected init folder")
+				
+				// Store selected folder and clear selection UI
+				dv.selectedInitFolder = selectedFolder
+				dv.folderSelection = nil
+				
+				// Run init transactions in background
+				if dv.aetherServer != nil {
+					go func() {
+						if err := dv.aetherServer.RunInitTransactionsWithFolder(selectedFolder); err != nil {
+							dv.logger.Error().Err(err).Msg("Failed to run init transactions")
+						}
+					}()
+				}
+				
+				return dv, nil
+			}
 		}
 	}
 
@@ -323,7 +382,7 @@ func (dv *DashboardView) renderAccountsBox(width, height int) string {
 	return boxStyle.Render(content.String())
 }
 
-// renderInitTransactionsBox renders the init transactions progress box
+// renderInitTransactionsBox renders the init transactions progress box or folder selection
 func (dv *DashboardView) renderInitTransactionsBox(width, height int) string {
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -341,11 +400,54 @@ func (dv *DashboardView) renderInitTransactionsBox(width, height int) string {
 
 	var content strings.Builder
 
-	// Header
-	if len(dv.initTransactions) == 0 {
+	// If folder selection is active, show folder selection UI
+	if dv.folderSelection != nil {
+		content.WriteString(headerStyle.Render("📁 Select Init Folder") + "\n\n")
+		content.WriteString(dimStyle.Render("↑/↓ or j/k to navigate, Enter to select") + "\n\n")
+
+		// List folders
+		for i, folder := range dv.folderSelection.Folders {
+			displayName := folder
+			if displayName == "" {
+				displayName = ". (root)"
+			}
+
+			if i == dv.selectedFolderIndex {
+				// Selected item
+				line := lipgloss.NewStyle().
+					Foreground(highlightColor).
+					Bold(true).
+					Render("▶ " + displayName)
+				content.WriteString(line + "\n")
+			} else {
+				// Unselected item
+				line := dimStyle.Render("  " + displayName)
+				content.WriteString(line + "\n")
+			}
+		}
+	} else if len(dv.initTransactions) == 0 {
+		// No transactions yet - show status
 		content.WriteString(headerStyle.Render("⏳ Init Transactions") + "\n\n")
-		content.WriteString(dimStyle.Render("Waiting for init transactions..."))
+		
+		// Show appropriate message based on mode and network
+		if dv.network == "emulator" {
+			if dv.interactiveMode && dv.selectedInitFolder == "" {
+				// Interactive mode and no folder selected yet
+				content.WriteString(dimStyle.Render("Waiting to select folder..."))
+			} else {
+				// Non-interactive mode or folder already selected
+				folderDisplay := "root"
+				if dv.selectedInitFolder != "" {
+					folderDisplay = dv.selectedInitFolder
+				}
+				content.WriteString(dimStyle.Render("Folder: "+folderDisplay) + "\n\n")
+				content.WriteString(dimStyle.Render("Waiting for init transactions..."))
+			}
+		} else {
+			content.WriteString(dimStyle.Render("Not available on " + dv.network))
+		}
 	} else {
+		// Show init transaction results
 		successCount := 0
 		for _, tx := range dv.initTransactions {
 			if tx.Success {
@@ -365,25 +467,21 @@ func (dv *DashboardView) renderInitTransactionsBox(width, height int) string {
 
 		for i := startIdx; i < len(dv.initTransactions); i++ {
 			tx := dv.initTransactions[i]
-			statusSymbol := "✓"
+			status := "✓"
 			statusColor := successColor
-
 			if !tx.Success {
-				statusSymbol = "✗"
+				status = "✗"
 				statusColor = errorColor
 			}
 
-			line := lipgloss.NewStyle().Foreground(statusColor).Render(
-				fmt.Sprintf("%s %s", statusSymbol, tx.Filename),
-			) + "\n"
-
+			line := fmt.Sprintf("%s %s\n",
+				lipgloss.NewStyle().Foreground(statusColor).Render(status),
+				valueStyle.Render(tx.Filename),
+			)
 			content.WriteString(line)
 
 			if !tx.Success && tx.Error != "" {
-				errorLine := lipgloss.NewStyle().
-					Foreground(errorColor).
-					Render(fmt.Sprintf("  Error: %s", truncateString(tx.Error, width-10))) + "\n"
-				content.WriteString(errorLine)
+				content.WriteString(dimStyle.Render("  "+tx.Error) + "\n")
 			}
 		}
 	}
@@ -474,5 +572,7 @@ func (dv *DashboardView) FooterView() string {
 
 // IsCapturingInput implements TabbedModel interface
 func (dv *DashboardView) IsCapturingInput() bool {
-	return false
+	// Capture input when folder selection is active
+	return dv.folderSelection != nil
 }
+

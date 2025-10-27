@@ -27,6 +27,16 @@ type Aether struct {
 	AccountRegistry *AccountRegistry
 	Network         string // "testnet", "mainnet", or "emulator"
 	Config          *config.Config
+	
+	// State for deferred init transaction execution (interactive mode)
+	pendingInitTx *pendingInitContext
+}
+
+type pendingInitContext struct {
+	teaProgram *tea.Program
+	o          *overflow.OverflowState
+	oR         *overflow.OverflowState
+	basePath   string
 }
 
 // BlockTransactionMsg is sent when a transaction is processed
@@ -114,6 +124,17 @@ type InitTransactionMsg struct {
 // BlockHeightMsg is sent periodically with the latest block height
 type BlockHeightMsg struct {
 	Height uint64
+}
+
+// InitFolderSelectionMsg prompts the user to select an init transactions folder
+type InitFolderSelectionMsg struct {
+	Folders     []string // Available folders to choose from
+	DefaultPath string   // The base aether path
+}
+
+// InitFolderSelectedMsg is sent when user selects a folder
+type InitFolderSelectedMsg struct {
+	SelectedFolder string // The folder name selected by user (empty string = root)
 }
 
 func (a *Aether) Start(teaProgram *tea.Program) error {
@@ -440,24 +461,55 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			a.Logger.Warn().Msg("No accounts to add to FCL")
 		}
 
-		// Determine init transactions path from config
+		// Determine init transactions path - either from config or interactive selection
 		initTxPath := validPath
-		if a.Config.Flow.InitTransactionsFolder != "" {
-			initTxPath = filepath.Join(validPath, a.Config.Flow.InitTransactionsFolder)
-			a.Logger.Info().Str("folder", a.Config.Flow.InitTransactionsFolder).Msg("Using configured init transactions folder")
-		}
-
-		// Use same overflow state for both .cdc and .json files
-		// Both point to same state since JSON configs reference the same transaction files
-		if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger, func(filename string, success bool, errorMsg string) {
-			// Send progress update to UI
-			teaProgram.Send(InitTransactionMsg{
-				Filename: filename,
-				Success:  success,
-				Error:    errorMsg,
+		
+		if a.Config.Flow.InitTransactionsInteractive {
+			// Interactive mode: scan for available folders and prompt user
+			folders, err := scanInitFolders(validPath)
+			if err != nil {
+				a.Logger.Error().Err(err).Msg("Failed to scan for init folders")
+				return err
+			}
+			
+			a.Logger.Info().
+				Int("folderCount", len(folders)).
+				Strs("folders", folders).
+				Msg("Found init transaction folders, prompting user for selection")
+			
+			// Send folder selection message to UI
+			teaProgram.Send(InitFolderSelectionMsg{
+				Folders:     folders,
+				DefaultPath: validPath,
 			})
-		}); err != nil {
-			return err
+			
+			// Store context for deferred init transaction execution
+			a.pendingInitTx = &pendingInitContext{
+				teaProgram: teaProgram,
+				o:          o,
+				oR:         oR,
+				basePath:   validPath,
+			}
+			a.Logger.Info().Msg("Init transaction context stored, waiting for user folder selection...")
+			
+		} else {
+			// Non-interactive mode: run init transactions immediately
+			if a.Config.Flow.InitTransactionsFolder != "" {
+				initTxPath = filepath.Join(validPath, a.Config.Flow.InitTransactionsFolder)
+				a.Logger.Info().Str("folder", a.Config.Flow.InitTransactionsFolder).Msg("Using configured init transactions folder")
+			}
+
+			// Use same overflow state for both .cdc and .json files
+			if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger, func(filename string, success bool, errorMsg string) {
+				// Send progress update to UI
+				teaProgram.Send(InitTransactionMsg{
+					Filename: filename,
+					Success:  success,
+					Error:    errorMsg,
+				})
+			}); err != nil {
+				return err
+			}
 		}
 	} else {
 		a.Logger.Info().Str("network", a.Network).Msg("Following network - skipping local setup steps")
@@ -466,4 +518,67 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 }
 
 func (a *Aether) Stop() {
+}
+
+// scanInitFolders scans the base aether directory for subdirectories
+// Returns a list of folder names (root folder is represented as "." or empty string)
+func scanInitFolders(basePath string) ([]string, error) {
+	var folders []string
+	
+	// Add root folder as an option (empty string means root)
+	folders = append(folders, "")
+	
+	// Read directory entries
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Collect subdirectories
+	for _, entry := range entries {
+		if entry.IsDir() {
+			folders = append(folders, entry.Name())
+		}
+	}
+	
+	return folders, nil
+}
+
+// RunInitTransactionsWithFolder runs init transactions from the selected folder
+// This is called by the UI after user selects a folder
+func (a *Aether) RunInitTransactionsWithFolder(selectedFolder string) error {
+	if a.pendingInitTx == nil {
+		return fmt.Errorf("no pending init transaction context")
+	}
+	
+	ctx := a.pendingInitTx
+	teaProgram := ctx.teaProgram
+	o := ctx.o
+	oR := ctx.oR
+	basePath := ctx.basePath
+	initTxPath := basePath
+	if selectedFolder != "" {
+		initTxPath = filepath.Join(basePath, selectedFolder)
+	}
+	
+	a.Logger.Info().
+		Str("folder", selectedFolder).
+		Str("path", initTxPath).
+		Msg("Running init transactions from selected folder")
+	
+	// Run init transactions
+	if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger, func(filename string, success bool, errorMsg string) {
+		// Send progress update to UI
+		teaProgram.Send(InitTransactionMsg{
+			Filename: filename,
+			Success:  success,
+			Error:    errorMsg,
+		})
+	}); err != nil {
+		a.Logger.Error().Err(err).Msg("Failed to run init transactions")
+		return err
+	}
+	
+	a.Logger.Info().Msg("Init transactions completed")
+	return nil
 }
