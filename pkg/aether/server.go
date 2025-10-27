@@ -104,6 +104,18 @@ type OverflowReadyMsg struct {
 	AccountRegistry *AccountRegistry
 }
 
+// InitTransactionMsg is sent when an init transaction executes
+type InitTransactionMsg struct {
+	Filename string
+	Success  bool
+	Error    string
+}
+
+// BlockHeightMsg is sent periodically with the latest block height
+type BlockHeightMsg struct {
+	Height uint64
+}
+
 func (a *Aether) Start(teaProgram *tea.Program) error {
 	ctx := context.Background()
 
@@ -387,6 +399,11 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 					}
 				}
 
+				// Send block height update to dashboard
+				teaProgram.Send(BlockHeightMsg{
+					Height: br.Block.Height,
+				})
+
 				// Log the block processing
 				txCount := len(br.Transactions)
 
@@ -432,7 +449,14 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 
 		// Use same overflow state for both .cdc and .json files
 		// Both point to same state since JSON configs reference the same transaction files
-		if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger); err != nil {
+		if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger, func(filename string, success bool, errorMsg string) {
+			// Send progress update to UI
+			teaProgram.Send(InitTransactionMsg{
+				Filename: filename,
+				Success:  success,
+				Error:    errorMsg,
+			})
+		}); err != nil {
 			return err
 		}
 	} else {

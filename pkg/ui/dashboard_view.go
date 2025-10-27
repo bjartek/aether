@@ -2,7 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
+	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -11,13 +14,30 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// DashboardView displays service information and guidelines
+// DashboardView displays live system status in three boxes
 type DashboardView struct {
-	services []ServiceInfo
-	ready    bool
-	width    int
-	height   int
-	logger   zerolog.Logger // Debug logger
+	// Services box
+	services      []ServiceInfo
+	servicesReady bool
+
+	// Init transactions box
+	initTransactions []InitTransactionStatus
+	initComplete     bool
+
+	// Block height box
+	latestBlockHeight uint64
+	network           string
+	blockTime         string
+	indexerPolling    string
+
+	// Accounts box
+	accountRegistry *aether.AccountRegistry
+	accounts        []string
+
+	// Layout
+	width  int
+	height int
+	logger zerolog.Logger
 }
 
 type ServiceInfo struct {
@@ -26,7 +46,13 @@ type ServiceInfo struct {
 	Status string
 }
 
-// NewDashboardViewWithConfig creates a new v2 dashboard view
+type InitTransactionStatus struct {
+	Filename string
+	Success  bool
+	Error    string
+}
+
+// NewDashboardViewWithConfig creates a new dashboard view
 func NewDashboardViewWithConfig(cfg *config.Config, logger zerolog.Logger) *DashboardView {
 	// Fallback to defaults when cfg is nil
 	if cfg == nil {
@@ -35,19 +61,27 @@ func NewDashboardViewWithConfig(cfg *config.Config, logger zerolog.Logger) *Dash
 
 	// Build services list from config ports
 	services := []ServiceInfo{
-		{Name: "Flow Emulator (gRPC)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.GRPC), Status: "Running"},
-		{Name: "Flow Emulator (REST)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.REST), Status: "Running"},
-		{Name: "Flow Emulator (Admin)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.Admin), Status: "Running"},
-		{Name: "Flow Emulator (Debugger)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.Debugger), Status: "Running"},
-		{Name: "Dev Wallet", Port: fmt.Sprintf("%d", cfg.Ports.DevWallet), Status: "Running"},
-		{Name: "EVM Gateway (JSON-RPC)", Port: fmt.Sprintf("%d", cfg.Ports.EVM.RPC), Status: "Running"},
-		{Name: "EVM Gateway (Profile)", Port: fmt.Sprintf("%d", cfg.Ports.EVM.Profiler), Status: "Running"},
+		{Name: "Flow Emulator (gRPC)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.GRPC), Status: "Starting..."},
+		{Name: "Flow Emulator (REST)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.REST), Status: "Starting..."},
+		{Name: "Flow Emulator (Admin)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.Admin), Status: "Starting..."},
+		{Name: "Flow Emulator (Debugger)", Port: fmt.Sprintf("%d", cfg.Ports.Emulator.Debugger), Status: "Starting..."},
+		{Name: "Dev Wallet", Port: fmt.Sprintf("%d", cfg.Ports.DevWallet), Status: "Starting..."},
+		{Name: "EVM Gateway (JSON-RPC)", Port: fmt.Sprintf("%d", cfg.Ports.EVM.RPC), Status: "Starting..."},
+		{Name: "EVM Gateway (Profiler)", Port: fmt.Sprintf("%d", cfg.Ports.EVM.Profiler), Status: "Starting..."},
 	}
 
 	return &DashboardView{
-		services: services,
-		ready:    true,
-		logger:   logger,
+		services:          services,
+		servicesReady:     false,
+		initTransactions:  []InitTransactionStatus{},
+		initComplete:      false,
+		latestBlockHeight: 0,
+		network:           cfg.Network,
+		blockTime:         cfg.Flow.BlockTime.String(),
+		indexerPolling:    cfg.Indexer.PollingInterval.String(),
+		accountRegistry:   nil,
+		accounts:          []string{},
+		logger:            logger,
 	}
 }
 
@@ -58,46 +92,358 @@ func (dv *DashboardView) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (dv *DashboardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	dv.logger.Debug().Str("method", "Update").Interface("msgType", msg).Msg("DashboardView.Update called")
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		dv.width = msg.Width
 		dv.height = msg.Height
+
+	case aether.OverflowReadyMsg:
+		// Mark services as ready
+		dv.servicesReady = true
+		for i := range dv.services {
+			dv.services[i].Status = "Running"
+		}
+		// Store account registry and get account names
+		dv.accountRegistry = msg.AccountRegistry
+		if dv.accountRegistry != nil {
+			dv.accounts = dv.accountRegistry.GetAllNames()
+		}
+		dv.logger.Debug().Msg("Services marked as ready")
+
+	case aether.InitTransactionMsg:
+		// Add init transaction status
+		dv.initTransactions = append(dv.initTransactions, InitTransactionStatus{
+			Filename: msg.Filename,
+			Success:  msg.Success,
+			Error:    msg.Error,
+		})
+		dv.logger.Debug().
+			Str("filename", msg.Filename).
+			Bool("success", msg.Success).
+			Msg("Init transaction status received")
+
+	case aether.BlockHeightMsg:
+		// Update block height
+		if msg.Height > dv.latestBlockHeight {
+			dv.latestBlockHeight = msg.Height
+		}
 	}
+
 	return dv, nil
 }
 
 // View implements tea.Model
 func (dv *DashboardView) View() string {
-	dv.logger.Debug().Str("method", "View").Msg("DashboardView.View called")
-
-	if !dv.ready {
-		return "Loading dashboard..."
+	if dv.width == 0 {
+		return "Loading..."
 	}
 
-	var content string
+	// Title
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#00D7FF")).
 		MarginBottom(1)
 
-	// Title
-	content += titleStyle.Render("🌊 Aether - Flow Blockchain Dashboard") + "\n\n"
+	title := titleStyle.Render("🌊 Aether - Flow Blockchain Dashboard") + "\n"
 
-	// Services section
-	content += sectionStyle.Render(
-		labelStyle.Render("Running Services:") + "\n" +
-			dv.renderServices(),
-	)
+	var boxes string
 
-	// Guidelines section
-	content += sectionStyle.Render(
-		labelStyle.Render("\nGuidelines:") + "\n" +
-			dv.renderGuidelines(),
-	)
+	// Show different boxes based on network
+	if dv.network == "emulator" {
+		// Emulator: show all four boxes
+		boxWidth := (dv.width - 8) / 4 // -8 for spacing between boxes
+		boxHeight := dv.height - 5     // -5 for title and padding
 
-	return content
+		servicesBox := dv.renderServicesBox(boxWidth, boxHeight)
+		accountsBox := dv.renderAccountsBox(boxWidth, boxHeight)
+		initBox := dv.renderInitTransactionsBox(boxWidth, boxHeight)
+		blockHeightBox := dv.renderBlockHeightBox(boxWidth, boxHeight)
+
+		boxes = lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			servicesBox,
+			"  ", // spacing
+			accountsBox,
+			"  ", // spacing
+			initBox,
+			"  ", // spacing
+			blockHeightBox,
+		)
+	} else {
+		// Testnet/Mainnet: only show accounts and block height
+		boxWidth := (dv.width - 4) / 2 // -4 for spacing between boxes
+		boxHeight := dv.height - 5     // -5 for title and padding
+
+		accountsBox := dv.renderAccountsBox(boxWidth, boxHeight)
+		blockHeightBox := dv.renderBlockHeightBox(boxWidth, boxHeight)
+
+		boxes = lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			accountsBox,
+			"  ", // spacing
+			blockHeightBox,
+		)
+	}
+
+	return title + boxes
+}
+
+// renderServicesBox renders the services status box
+func (dv *DashboardView) renderServicesBox(width, height int) string {
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(secondaryColor).
+		PaddingLeft(1).
+		PaddingRight(1)
+
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(secondaryColor).
+		Background(base02).
+		PaddingLeft(1).
+		PaddingRight(1).
+		MarginBottom(1)
+
+	var content strings.Builder
+
+	// Header
+	if dv.servicesReady {
+		content.WriteString(headerStyle.Render("✓ Services Running") + "\n\n")
+	} else {
+		content.WriteString(headerStyle.Render("⏳ Starting Services...") + "\n\n")
+	}
+
+	// Services list
+	if len(dv.services) == 0 {
+		content.WriteString(dimStyle.Render("No services configured"))
+	} else {
+		// Calculate max service name length for alignment
+		maxNameLen := 0
+		for _, svc := range dv.services {
+			nameLen := len(svc.Name) + 2 // +2 for symbol and space
+			if nameLen > maxNameLen {
+				maxNameLen = nameLen
+			}
+		}
+
+		for _, svc := range dv.services {
+			statusColor := mutedColor
+			statusSymbol := "⏳"
+
+			if svc.Status == "Running" {
+				statusColor = successColor
+				statusSymbol = "✓"
+			}
+
+			// Pad service name to align ports
+			serviceName := statusSymbol + " " + svc.Name
+			paddedName := fmt.Sprintf("%-*s", maxNameLen, serviceName)
+
+			line := fmt.Sprintf("%s - Port %s\n",
+				lipgloss.NewStyle().Foreground(statusColor).Render(paddedName),
+				dimStyle.Render(svc.Port),
+			)
+			content.WriteString(line)
+		}
+	}
+
+	return boxStyle.Render(content.String())
+}
+
+// renderAccountsBox renders the accounts box showing dev-wallet accounts and funding status
+func (dv *DashboardView) renderAccountsBox(width, height int) string {
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(primaryColor).
+		PaddingLeft(1).
+		PaddingRight(1)
+
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(primaryColor).
+		Background(base02).
+		PaddingLeft(1).
+		PaddingRight(1).
+		MarginBottom(1)
+
+	var content strings.Builder
+
+	// Header
+	if dv.accountRegistry == nil || len(dv.accounts) == 0 {
+		content.WriteString(headerStyle.Render("👤 Accounts") + "\n\n")
+		content.WriteString(dimStyle.Render("Waiting for accounts..."))
+	} else {
+		content.WriteString(headerStyle.Render(fmt.Sprintf("👤 Accounts (%d)", len(dv.accounts))) + "\n\n")
+
+		// Get all address-name pairs from registry
+		addressToName := dv.accountRegistry.DebugDump()
+		
+		// Create sorted list of accounts: service-account first, then alphabetically
+		type accountPair struct {
+			name    string
+			address string
+		}
+		var accounts []accountPair
+		var serviceAccount *accountPair
+		
+		for address, name := range addressToName {
+			if name == "service-account" {
+				serviceAccount = &accountPair{name: name, address: address}
+			} else {
+				accounts = append(accounts, accountPair{name: name, address: address})
+			}
+		}
+		
+		// Sort non-service accounts alphabetically
+		sort.Slice(accounts, func(i, j int) bool {
+			return accounts[i].name < accounts[j].name
+		})
+		
+		// Show service-account first if it exists
+		if serviceAccount != nil {
+			line := fmt.Sprintf("%s %s\n  %s\n",
+				lipgloss.NewStyle().Foreground(successColor).Render("✓"),
+				valueStyle.Render(serviceAccount.name),
+				dimStyle.Render(serviceAccount.address),
+			)
+			content.WriteString(line)
+		}
+		
+		// Show all other accounts in alphabetical order
+		for _, account := range accounts {
+			line := fmt.Sprintf("%s %s\n  %s\n",
+				lipgloss.NewStyle().Foreground(successColor).Render("✓"),
+				valueStyle.Render(account.name),
+				dimStyle.Render(account.address),
+			)
+			content.WriteString(line)
+		}
+	}
+
+	return boxStyle.Render(content.String())
+}
+
+// renderInitTransactionsBox renders the init transactions progress box
+func (dv *DashboardView) renderInitTransactionsBox(width, height int) string {
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(highlightColor).
+		PaddingLeft(1).
+		PaddingRight(1)
+
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(highlightColor).
+		Background(base02).
+		PaddingLeft(1).
+		PaddingRight(1).
+		MarginBottom(1)
+
+	var content strings.Builder
+
+	// Header
+	if len(dv.initTransactions) == 0 {
+		content.WriteString(headerStyle.Render("⏳ Init Transactions") + "\n\n")
+		content.WriteString(dimStyle.Render("Waiting for init transactions..."))
+	} else {
+		successCount := 0
+		for _, tx := range dv.initTransactions {
+			if tx.Success {
+				successCount++
+			}
+		}
+
+		header := fmt.Sprintf("Init Transactions (%d/%d)", successCount, len(dv.initTransactions))
+		content.WriteString(headerStyle.Render(header) + "\n\n")
+
+		// Show recent transactions (limit to fit in box)
+		maxVisible := (height - 6) / 2 // Rough estimate of lines per transaction
+		startIdx := 0
+		if len(dv.initTransactions) > maxVisible {
+			startIdx = len(dv.initTransactions) - maxVisible
+		}
+
+		for i := startIdx; i < len(dv.initTransactions); i++ {
+			tx := dv.initTransactions[i]
+			statusSymbol := "✓"
+			statusColor := successColor
+
+			if !tx.Success {
+				statusSymbol = "✗"
+				statusColor = errorColor
+			}
+
+			line := lipgloss.NewStyle().Foreground(statusColor).Render(
+				fmt.Sprintf("%s %s", statusSymbol, tx.Filename),
+			) + "\n"
+
+			content.WriteString(line)
+
+			if !tx.Success && tx.Error != "" {
+				errorLine := lipgloss.NewStyle().
+					Foreground(errorColor).
+					Render(fmt.Sprintf("  Error: %s", truncateString(tx.Error, width-10))) + "\n"
+				content.WriteString(errorLine)
+			}
+		}
+	}
+
+	return boxStyle.Render(content.String())
+}
+
+// renderBlockHeightBox renders the latest block height box
+func (dv *DashboardView) renderBlockHeightBox(width, height int) string {
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(successColor).
+		PaddingLeft(1).
+		PaddingRight(1)
+
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(successColor).
+		Background(base02).
+		PaddingLeft(1).
+		PaddingRight(1).
+		MarginBottom(1)
+
+	var content strings.Builder
+
+	// Header
+	content.WriteString(headerStyle.Render("📦 Latest Block") + "\n\n")
+
+	// Network info
+	content.WriteString(labelStyle.Render("Network: ") + valueStyle.Render(dv.network) + "\n")
+	
+	// Only show block time for emulator (it's configurable there)
+	if dv.network == "emulator" {
+		content.WriteString(dimStyle.Render(fmt.Sprintf("Block time: %s", dv.blockTime)) + "\n")
+	}
+	
+	content.WriteString(dimStyle.Render(fmt.Sprintf("Polling: %s", dv.indexerPolling)) + "\n\n")
+
+	// Block height
+	if dv.latestBlockHeight == 0 {
+		content.WriteString(dimStyle.Render("Waiting for first block..."))
+	} else {
+		blockStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(successColor)
+
+		content.WriteString(blockStyle.Render(fmt.Sprintf("Height: %d", dv.latestBlockHeight)))
+		content.WriteString("\n\n")
+		content.WriteString(dimStyle.Render("Blockchain is live"))
+	}
+
+	return boxStyle.Render(content.String())
+}
+
+// truncateString truncates a string to maxLen with ellipsis
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // Name implements TabbedModel interface
@@ -129,46 +475,4 @@ func (dv *DashboardView) FooterView() string {
 // IsCapturingInput implements TabbedModel interface
 func (dv *DashboardView) IsCapturingInput() bool {
 	return false
-}
-
-func (dv *DashboardView) renderServices() string {
-	var services string
-	for _, svc := range dv.services {
-		statusColor := successColor
-		if svc.Status != "Running" {
-			statusColor = errorColor
-		}
-
-		services += fmt.Sprintf("  • %s - Port %s - %s\n",
-			valueStyle.Render(svc.Name),
-			valueStyle.Render(svc.Port),
-			lipgloss.NewStyle().Foreground(statusColor).Render(svc.Status),
-		)
-	}
-	return services
-}
-
-func (dv *DashboardView) renderGuidelines() string {
-	guidelines := `  Aether is an alternatate cli for the Flow blockchain.
-  It combines multiple Flow CLI tools into a unified interface.
-
-  Key Features:
-  • Real-time transaction monitoring with detailed inspection
-  • Real-time event monitoring with detailed inspection
-  • Real-time log monitoring with auto-scroll
-  • Runner for transactions and scripts
-  • Save and run transactions and scripts with prefilled parameters
-  • Service status tracking
-  • Comprehensive logging with auto-scroll
-
-  Press ? to see all keybindings and navigation help
-
-  Built with:
-  • Overflow - Go toolkit for Flow blockchain
-    (github.com/bjartek/overflow)
-
-  ---
-  💭 Vibe-coded with Windsurf & Claude Sonnet 4.5 Thinking
-`
-	return valueStyle.Render(guidelines)
 }

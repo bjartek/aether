@@ -49,6 +49,9 @@ var (
 
 	valueStyle = lipgloss.NewStyle().
 			Foreground(accentColor)
+
+	dimStyle = lipgloss.NewStyle().
+			Foreground(mutedColor)
 )
 
 // GetTabbedStyles returns the tabbedtui.Styles configured with our theme colors
