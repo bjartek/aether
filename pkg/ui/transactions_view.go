@@ -124,6 +124,7 @@ func NewTransactionsViewWithConfig(cfg *config.Config, logger zerolog.Logger) *T
 		columns,
 		splitview.WithTableStyles(s),
 		splitview.WithTableSplitPercent(float64(cfg.UI.Layout.TransactionsSplitPercent)/100.0),
+		splitview.WithSortOrder(cfg.UI.Defaults.Sort),
 	)
 
 	// Initialize save input
@@ -314,10 +315,10 @@ func (tv *TransactionsView) SetOverflow(o *overflow.OverflowState) {
 
 // AddTransaction accepts prebuilt TransactionData and converts it to a splitview row
 func (tv *TransactionsView) AddTransaction(txData aether.TransactionData) {
-	// Store transaction data for rebuilding
+	// Store transaction data for rebuilding (always append to internal array)
 	tv.transactions = append(tv.transactions, txData)
 
-	// Build and add row
+	// Add row to splitview (it handles sort order internally)
 	tv.addTransactionRow(txData)
 }
 

@@ -109,9 +109,10 @@ type LayoutConfig struct {
 	RunnerSplitPercent       int `mapstructure:"runner_split_percent"`       // Table width as percentage (0-100)
 }
 
-// DefaultsConfig contains default display modes
+// DefaultsConfig contains default UI behaviors
 type DefaultsConfig struct {
 	ShowEventFields  bool   `mapstructure:"show_event_fields"`
 	ShowRawAddresses bool   `mapstructure:"show_raw_addresses"`
-	TimeFormat       string `mapstructure:"time_format"` // Go time format string, default "15:04:05"
-}
+	TimeFormat       string `mapstructure:"time_format"`
+	Sort             string `mapstructure:"sort"` // "asc" or "desc" - controls transaction and event sort order
+} // Go time format string, default "15:04:05"

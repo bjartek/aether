@@ -61,6 +61,7 @@ type SplitViewModel struct {
 	width             int
 	height            int
 	fullDetailMode    bool
+	sortOrder         string // "asc" or "desc" - controls how new rows are added
 
 	// Cache highlighted code per row index
 	codeFullscreenCache map[int]string
@@ -126,6 +127,13 @@ func WithRows(rows []RowData) Option {
 	return func(m *SplitViewModel) {
 		m.rows = rows
 		m.updateTableRows()
+	}
+}
+
+// WithSortOrder sets the sort order for new rows ("asc" or "desc")
+func WithSortOrder(sortOrder string) Option {
+	return func(m *SplitViewModel) {
+		m.sortOrder = sortOrder
 	}
 }
 
@@ -286,9 +294,21 @@ func (m *SplitViewModel) buildViewportContent(width int, isFullscreen bool) stri
 	return content
 }
 
-// AddRow adds a new row to the split view
+// AddRow adds a new row to the split view (respects sortOrder)
 func (m *SplitViewModel) AddRow(row RowData) {
-	m.rows = append(m.rows, row)
+	if m.sortOrder == "desc" {
+		// Prepend for descending (newest first)
+		m.rows = append([]RowData{row}, m.rows...)
+	} else {
+		// Append for ascending (oldest first) - default
+		m.rows = append(m.rows, row)
+	}
+	m.updateTableRows()
+}
+
+// PrependRow adds a new row at the beginning (always newest first)
+func (m *SplitViewModel) PrependRow(row RowData) {
+	m.rows = append([]RowData{row}, m.rows...)
 	m.updateTableRows()
 }
 

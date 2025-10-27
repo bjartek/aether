@@ -105,6 +105,7 @@ func NewEventsViewWithConfig(cfg *config.Config, logger zerolog.Logger) *EventsV
 		columns,
 		splitview.WithTableStyles(s),
 		splitview.WithTableSplitPercent(float64(cfg.UI.Layout.EventsSplitPercent)/100.0),
+		splitview.WithSortOrder(cfg.UI.Defaults.Sort),
 	)
 
 	return &EventsView{
@@ -215,10 +216,10 @@ func (ev *EventsView) SetAccountRegistry(registry *aether.AccountRegistry) {
 
 // AddEvent accepts EventData and converts it to a splitview row
 func (ev *EventsView) AddEvent(eventData aether.EventData) {
-	// Store event data for rebuilding
+	// Store event data for rebuilding (always append to internal array)
 	ev.events = append(ev.events, eventData)
 
-	// Build and add row
+	// Add row to splitview (it handles sort order internally)
 	ev.addEventRow(eventData)
 }
 

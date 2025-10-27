@@ -69,3 +69,4 @@ ui:
     show_event_fields: true     # Show event fields in transaction details
     show_raw_addresses: false   # Show raw addresses instead of account names
     time_format: "15:04:05"     # Time format for UI timestamps
+    sort: "desc"                # Sort order for transactions and events ("asc" = oldest first, "desc" = newest first)

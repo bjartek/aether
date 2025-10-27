@@ -52,8 +52,10 @@ network: emulator
 
 # Flow blockchain settings
 flow:
-  new_user_balance: 1000.0      # Initial balance for new accounts (FLOW tokens)
-  block_time: 1s                # Block production time
+  new_user_balance: 1000.0              # Initial balance for new accounts (FLOW tokens)
+  block_time: 1s                        # Block production time
+  init_transactions_folder: ""          # Subfolder to run init transactions from (empty = root aether folder)
+  init_transactions_interactive: false  # If true, prompt user to select folder at startup
 
 # Indexer settings for monitoring blockchain events
 indexer:
@@ -112,6 +114,7 @@ ui:
     show_event_fields: true     # Show event fields in transaction details
     show_raw_addresses: false   # Show raw addresses instead of account names
     time_format: "15:04:05"     # Time format for UI timestamps
+    sort: "asc"                 # Sort order for transactions and events ("asc" = oldest first, "desc" = newest first)
 ```
 
 ### Minimal Configuration Example

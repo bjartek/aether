@@ -1,8 +1,0 @@
-{
-  "name": "mintFlow2.emulator",
-  "signers": [],
-  "arguments": {
-    "amount": "1000",
-    "recipient": "0x179b6b1cb6755e31"
-  }
-}
