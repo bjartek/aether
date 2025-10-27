@@ -140,13 +140,6 @@ func TestValidation(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "invalid default view",
-			modify: func(c *Config) {
-				c.UI.Layout.DefaultView = "invalid"
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {

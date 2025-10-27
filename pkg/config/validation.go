@@ -135,29 +135,15 @@ func validateLogLevels(levels LogLevelConfig) error {
 
 // validateUI validates UI configuration
 func validateUI(ui UIConfig) error {
-	// Validate default view
-	validViews := map[string]bool{
-		"dashboard":    true,
-		"transactions": true,
-		"events":       true,
-		"runner":       true,
-	}
-	if !validViews[ui.Layout.DefaultView] {
-		return fmt.Errorf("invalid default view '%s': must be one of: dashboard, transactions, events, runner", ui.Layout.DefaultView)
-	}
-
 	// Validate percentages
-	if ui.Layout.Transactions.TableWidthPercent < 0 || ui.Layout.Transactions.TableWidthPercent > 100 {
-		return fmt.Errorf("invalid transactions table width percent: must be between 0 and 100")
+	if ui.Layout.TransactionsSplitPercent < 0 || ui.Layout.TransactionsSplitPercent > 100 {
+		return fmt.Errorf("invalid transactions split percent: must be between 0 and 100")
 	}
-	if ui.Layout.Transactions.DetailWidthPercent < 0 || ui.Layout.Transactions.DetailWidthPercent > 100 {
-		return fmt.Errorf("invalid transactions detail width percent: must be between 0 and 100")
+	if ui.Layout.EventsSplitPercent < 0 || ui.Layout.EventsSplitPercent > 100 {
+		return fmt.Errorf("invalid events split percent: must be between 0 and 100")
 	}
-	if ui.Layout.Events.TableWidthPercent < 0 || ui.Layout.Events.TableWidthPercent > 100 {
-		return fmt.Errorf("invalid events table width percent: must be between 0 and 100")
-	}
-	if ui.Layout.Events.DetailWidthPercent < 0 || ui.Layout.Events.DetailWidthPercent > 100 {
-		return fmt.Errorf("invalid events detail width percent: must be between 0 and 100")
+	if ui.Layout.RunnerSplitPercent < 0 || ui.Layout.RunnerSplitPercent > 100 {
+		return fmt.Errorf("invalid runner split percent: must be between 0 and 100")
 	}
 
 	// Validate positive values

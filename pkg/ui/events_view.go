@@ -104,7 +104,7 @@ func NewEventsViewWithConfig(cfg *config.Config, logger zerolog.Logger) *EventsV
 	sv := splitview.NewSplitView(
 		columns,
 		splitview.WithTableStyles(s),
-		splitview.WithTableSplitPercent(float64(cfg.UI.Layout.Events.TableWidthPercent)/100.0),
+		splitview.WithTableSplitPercent(float64(cfg.UI.Layout.EventsSplitPercent)/100.0),
 	)
 
 	return &EventsView{

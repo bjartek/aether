@@ -123,7 +123,7 @@ func NewTransactionsViewWithConfig(cfg *config.Config, logger zerolog.Logger) *T
 	sv := splitview.NewSplitView(
 		columns,
 		splitview.WithTableStyles(s),
-		splitview.WithTableSplitPercent(float64(cfg.UI.Layout.Transactions.TableWidthPercent)/100.0),
+		splitview.WithTableSplitPercent(float64(cfg.UI.Layout.TransactionsSplitPercent)/100.0),
 	)
 
 	// Initialize save input

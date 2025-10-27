@@ -190,7 +190,7 @@ func NewRunnerViewWithConfig(cfg *config.Config, logger zerolog.Logger) *RunnerV
 		Bold(false)
 
 	// Build splitview with options
-	tableSplitPercent := float64(cfg.UI.Layout.Runner.TableWidthPercent) / 100.0
+	tableSplitPercent := float64(cfg.UI.Layout.RunnerSplitPercent) / 100.0
 	sv := splitview.NewSplitView(
 		columns,
 		splitview.WithTableStyles(s),

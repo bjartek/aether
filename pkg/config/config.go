@@ -88,13 +88,9 @@ type LogFileConfig struct {
 
 // UIConfig contains UI preferences
 type UIConfig struct {
-	Theme    string         `mapstructure:"theme"`
 	History  HistoryConfig  `mapstructure:"history"`
 	Layout   LayoutConfig   `mapstructure:"layout"`
 	Defaults DefaultsConfig `mapstructure:"defaults"`
-	Filter   FilterConfig   `mapstructure:"filter"`
-	Save     SaveConfig     `mapstructure:"save"`
-	Debug    bool           `mapstructure:"debug"` // Enable debug logging for UI components
 }
 
 // HistoryConfig contains history limits
@@ -106,36 +102,14 @@ type HistoryConfig struct {
 
 // LayoutConfig contains layout preferences
 type LayoutConfig struct {
-	DefaultView  string           `mapstructure:"default_view"`
-	Transactions ViewLayoutConfig `mapstructure:"transactions"`
-	Events       ViewLayoutConfig `mapstructure:"events"`
-	Runner       ViewLayoutConfig `mapstructure:"runner"`
-}
-
-// ViewLayoutConfig contains split ratios for a view
-type ViewLayoutConfig struct {
-	TableWidthPercent  int `mapstructure:"table_width_percent"`
-	DetailWidthPercent int `mapstructure:"detail_width_percent"`
-	CodeWrapWidth      int `mapstructure:"code_wrap_width"` // Width for wrapping code with syntax highlighting (0 = no wrap)
+	TransactionsSplitPercent int `mapstructure:"transactions_split_percent"` // Table width as percentage (0-100)
+	EventsSplitPercent       int `mapstructure:"events_split_percent"`       // Table width as percentage (0-100)
+	RunnerSplitPercent       int `mapstructure:"runner_split_percent"`       // Table width as percentage (0-100)
 }
 
 // DefaultsConfig contains default display modes
 type DefaultsConfig struct {
 	ShowEventFields  bool   `mapstructure:"show_event_fields"`
 	ShowRawAddresses bool   `mapstructure:"show_raw_addresses"`
-	FullDetailMode   bool   `mapstructure:"full_detail_mode"`
 	TimeFormat       string `mapstructure:"time_format"` // Go time format string, default "15:04:05"
-}
-
-// FilterConfig contains filter settings
-type FilterConfig struct {
-	CharLimit int `mapstructure:"char_limit"`
-	Width     int `mapstructure:"width"`
-}
-
-// SaveConfig contains save dialog settings
-type SaveConfig struct {
-	DefaultDirectory   string `mapstructure:"default_directory"`
-	FilenameCharLimit  int    `mapstructure:"filename_char_limit"`
-	DialogWidth        int    `mapstructure:"dialog_width"`
 }

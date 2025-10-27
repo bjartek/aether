@@ -53,44 +53,20 @@ func DefaultConfig() *Config {
 			},
 		},
 		UI: UIConfig{
-			Theme: "solarized",
 			History: HistoryConfig{
 				MaxTransactions: 10000,
 				MaxEvents:       10000,
 				MaxLogLines:     10000,
 			},
 			Layout: LayoutConfig{
-				DefaultView: "dashboard",
-				Transactions: ViewLayoutConfig{
-					TableWidthPercent:  40,
-					DetailWidthPercent: 60,
-					CodeWrapWidth:      160,
-				},
-				Events: ViewLayoutConfig{
-					TableWidthPercent:  50,
-					DetailWidthPercent: 50,
-					CodeWrapWidth:      160,
-				},
-				Runner: ViewLayoutConfig{
-					TableWidthPercent:  40,
-					DetailWidthPercent: 60,
-					CodeWrapWidth:      160,
-				},
+				TransactionsSplitPercent: 40,
+				EventsSplitPercent:       50,
+				RunnerSplitPercent:       40,
 			},
 			Defaults: DefaultsConfig{
 				ShowEventFields:  true,
 				ShowRawAddresses: false,
-				FullDetailMode:   false,
 				TimeFormat:       "15:04:05",
-			},
-			Filter: FilterConfig{
-				CharLimit: 50,
-				Width:     50,
-			},
-			Save: SaveConfig{
-				DefaultDirectory:  "transactions",
-				FilenameCharLimit: 50,
-				DialogWidth:       40,
 			},
 		},
 	}

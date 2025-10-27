@@ -16,26 +16,133 @@ see casts
 - navigate to a folder with flow.json
 - run `aether`
 
-### Command Line Flags
-
-- `--verbose` - Enable verbose (debug) logging
-- `--log-file <filename>` - Log to file (e.g. `aether --log-file aether-debug.log`)
-
-**Examples:**
+### Command Line Options
 
 ```bash
-# Run with default settings (info level, no file logging)
+# Run with default settings
 aether
 
-# Run with verbose logging
-aether --verbose
+# Specify a custom configuration file
+aether --config path/to/aether.yaml
 
-# Run with file logging
-aether --log-file debug.log
+# Override network setting (emulator, testnet, or mainnet)
+aether -n testnet
 
-# Run with both verbose and file logging
-aether --verbose --log-file debug.log
+# Enable debug logging (creates aether-debug.log)
+aether --debug
+# or
+aether -d
 ```
+
+For troubleshooting and reporting issues, see [DEBUGGING.md](DEBUGGING.md).
+
+## Configuration
+
+Aether can be configured using an `aether.yaml` file in your project directory. If no configuration file is present, sensible defaults are used.
+
+### Configuration File Location
+
+Aether looks for `aether.yaml` in the current directory where you run the command.
+
+### Configuration Structure
+
+```yaml
+# Network to use (default: "emulator")
+network: emulator
+
+# Flow blockchain settings
+flow:
+  new_user_balance: 1000.0      # Initial balance for new accounts (FLOW tokens)
+  block_time: 1s                # Block production time
+
+# Indexer settings for monitoring blockchain events
+indexer:
+  polling_interval: 200ms       # How often to poll for new blocks
+  underflow:
+    byte_array_as_hex: true     # Display byte arrays as hex strings
+    show_timestamps_as_date: true  # Show timestamps in human-readable format
+    timestamp_format: "2006-01-02 15:04:05 UTC"  # Go time format string
+
+# Port configurations
+ports:
+  emulator:
+    grpc: 3569                  # Flow emulator gRPC port
+    rest: 8888                  # Flow emulator REST API port
+    admin: 8080                 # Flow emulator admin port
+    debugger: 2345              # Flow emulator debugger port
+  dev_wallet: 8701              # Dev wallet port
+  evm:
+    rpc: 8545                   # EVM gateway JSON-RPC port
+    profiler: 6060              # EVM gateway profiler port
+    metrics: 9091               # EVM gateway metrics port
+
+# EVM gateway settings
+evm:
+  database_path: "evm-gateway-db"  # Path to EVM gateway database
+  delete_database_on_start: true   # Clear database on startup
+
+# Logging configuration
+logging:
+  level:
+    global: info                # Global log level (debug, info, warn, error)
+    aether: ""                  # Aether log level (empty = inherit global)
+    emulator: ""                # Emulator log level (empty = inherit global)
+    dev_wallet: ""              # Dev wallet log level (empty = inherit global)
+    evm_gateway: error          # EVM gateway log level
+  timestamp_format: "15:04:05"  # Time format for log timestamps
+  color: true                   # Enable colored output
+  file:
+    enabled: false              # Enable file logging
+    path: ""                    # Log file path (e.g., "aether.log")
+    buffer_size: 1000           # Log buffer size
+
+# UI preferences
+ui:
+  history:
+    max_transactions: 10000     # Maximum transactions to keep in history
+    max_events: 10000           # Maximum events to keep in history
+    max_log_lines: 10000        # Maximum log lines to keep in history
+  
+  layout:
+    transactions_split_percent: 40  # Table width as percentage (0-100)
+    events_split_percent: 50        # Table width as percentage (0-100)
+    runner_split_percent: 40        # Table width as percentage (0-100)
+  
+  defaults:
+    show_event_fields: true     # Show event fields in transaction details
+    show_raw_addresses: false   # Show raw addresses instead of account names
+    time_format: "15:04:05"     # Time format for UI timestamps
+```
+
+### Minimal Configuration Example
+
+Most users only need to override a few settings. Here's a minimal example:
+
+```yaml
+# aether.yaml - minimal configuration
+logging:
+  level:
+    global: debug              # Enable debug logging
+  file:
+    enabled: true
+    path: "aether.log"         # Log to file
+
+ui:
+  defaults:
+    show_raw_addresses: true   # Show raw addresses
+```
+
+### Configuration Priority
+
+1. Command-line flags (highest priority)
+2. `aether.yaml` configuration file
+3. Default values (lowest priority)
+
+### Command-Line Overrides
+
+- `--config <path>` - Specify custom configuration file location
+- `-n <network>` - Override network setting (emulator, testnet, mainnet)
+- `--debug` / `-d` - Enable debug logging (see [DEBUGGING.md](DEBUGGING.md))
 
 ## Local development
 
@@ -43,95 +150,39 @@ run `make` to build the binary start it and run it in the example folder
 
 ## Features
 
+ - navgigate tabs with `<number>` or tabs/arrow keys.
+ - show help in fotter with `?`
+ - shows transactions in a tabular view with an inspecor, can see details with `enter` or `space`
+  - can toggle to show human readable addresses with `a` 
+  - can collapse/expand events with `e`
+  - can show `[uint8]` arrays as hex configured in config file
+  - can show unix_timestamps as human readable date, confiured in config file
+  - can save an existing transaction with predefined arguments/signer. note that this is only valid for the current network
+
+ - show events in a tabular view with an inspector, can see details
+  - can toggle to show human readable addresses with `a` 
+  - can show `[uint8]` arrays as hex configured in config file
+  - can show unix_timestamps as human readable date, confiured in config file
+ - show logs of all the components with log level configured in config file
+ - shows a dashboard of what is exposed and what is run 
+ - allows the user to run transactions
+
+### Emulator use
 - starts flow emulator on default port 3569
 - starts dev-wallet at default port 8701
 - starts EVM gateway on default port 3000 (JSON-RPC API)
 - deploys all contracts in flow.json for emulator
-- creates all users in flow.json that are mentioned in deploy block
+- creates all users in flow.json that are mentioned in deploy block 
+- mints flow tokens for all users specified amount in 
 - runs a set of init transactions from aether or cadence/aether folder
   - transactions are run in alphabetical order
   - signer is taken from names in flow.json without emulator- prefix
     - so `(alice: &Account)` means sign with alice
-  - no arguments are allowed in init transactions
-- starts the aether TUI
-  - shows transactions in a table
-  - shows transaction details in an inspector
-  - shows events in a table
-  - shows event details in an inspector
-  - shows log from emulator and dev-wallet and aether
-  - shows a dashboard
-  - filter transactions
-  - filter events
-  - filter logs
-  - save interactions
-  - run interactions
-  - show events
-  - save transactions from transactions view with network suffix
-  - syntax highlight using chroma
-  - support for running on testnet/mainnet from the latest blockheight?
-  - show [uint8] as hex string (this will be configurable eventually)
+  - can also run saved/templated transctions with given sender and arguments (json file)
 
-## Testing EVM Support with Foundry
+### Mainnet/testnet use
+ - follows mainnet or testnet
+ - allows to save a transaction to run be run later
+ - allows the user to run transaction if key configured in flow.json
 
-Aether automatically starts the Flow EVM Gateway, allowing you to deploy and interact with Solidity smart contracts using Foundry.
 
-### Prerequisites
-
-Install Foundry:
-
-```bash
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-```
-
-### EVM notes
-
-This does not work atm, debuging with mpeter
-
-1. **Deploy the contract** to Flow EVM (running on localhost:3000):
-
-   ```bash
-   forge script script/Counter.s.sol:CounterScript \
-        --rpc-url http://localhost:8545 \
-        --slow \
-        -vvv \
-        --legacy \
-        --broadcast \
-        --via-ir \
-        -i 1
-   ```
-
-   note down the address that is created, i think this is always 0xC7f2Cf4845C6db0e1a1e91ED41Bcd0FcC1b0E141
-
-2. **Interact with the deployed contract**:
-
-   ```bash
-   # Get the current count (should be 0)
-   cast call 0xC7f2Cf4845C6db0e1a1e91ED41Bcd0FcC1b0E141 "getCount()(uint256)" \
-     --chain-id 646 \
-     --rpc-url http://localhost:8545
-
-   #this fails for me saying that there is no contract here
-
-   # Increment the counter
-   cast send  0xC7f2Cf4845C6db0e1a1e91ED41Bcd0FcC1b0E141 "increment()" \
-     --chain-id 646 \
-     --rpc-url http://localhost:8545 \
-     --private-key 0x2619878f0e2ff438d17835c2a4561cb87b4d24d72d12ec34569acd0dd4af7c21
-
-   # Get the new count (should be 1)
-   cast call 0xC7f2Cf4845C6db0e1a1e91ED41Bcd0FcC1b0E141 "getCount()(uint256)" \
-     --chain-id 646 \
-     --rpc-url http://localhost:8545
-   ```
-
-## Planned features
-
-- [ ] show accounts
-- [x] show time not date of executed transaction
-- [x] human friendly display of unix timestamp
-- [x] events table show time column
-- [x] scheduled transaction
-- [ ] navigating in runner is slow since we have to step through arguments
-- [x] make a config file
-- [x] not sure if fees are filtered correctly on emulator...
