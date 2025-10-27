@@ -17,8 +17,9 @@ type Config struct {
 
 // FlowConfig contains Flow blockchain settings
 type FlowConfig struct {
-	NewUserBalance float64       `mapstructure:"new_user_balance"`
-	BlockTime      time.Duration `mapstructure:"block_time"`
+	NewUserBalance        float64       `mapstructure:"new_user_balance"`
+	BlockTime             time.Duration `mapstructure:"block_time"`
+	InitTransactionsFolder string        `mapstructure:"init_transactions_folder"` // Folder to scan for init transactions (relative to aether folder)
 }
 
 // IndexerConfig contains indexer-specific settings

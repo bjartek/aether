@@ -423,9 +423,16 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 			a.Logger.Warn().Msg("No accounts to add to FCL")
 		}
 
+		// Determine init transactions path from config
+		initTxPath := validPath
+		if a.Config.Flow.InitTransactionsFolder != "" {
+			initTxPath = filepath.Join(validPath, a.Config.Flow.InitTransactionsFolder)
+			a.Logger.Info().Str("folder", a.Config.Flow.InitTransactionsFolder).Msg("Using configured init transactions folder")
+		}
+
 		// Use same overflow state for both .cdc and .json files
 		// Both point to same state since JSON configs reference the same transaction files
-		if err := flow.RunInitTransactions(o, oR, validPath, a.Logger); err != nil {
+		if err := flow.RunInitTransactions(o, oR, initTxPath, a.Logger); err != nil {
 			return err
 		}
 	} else {

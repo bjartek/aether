@@ -12,14 +12,18 @@ import (
 
 // RunInitTransactions runs initialization transactions from both .cdc and .json files
 // cdcOverflow is used for .cdc files, jsonOverflow is used for .json config files
+// Only processes files in the root validPath directory - does NOT recurse into subdirectories
 func RunInitTransactions(cdcOverflow *overflow.OverflowState, jsonOverflow *overflow.OverflowState, validPath string, logger *zerolog.Logger) error {
 	err := filepath.Walk(validPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Skip directories
+		// Skip subdirectories - only process files in root validPath
 		if info.IsDir() {
+			if path != validPath {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 

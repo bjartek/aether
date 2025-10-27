@@ -7,8 +7,9 @@ func DefaultConfig() *Config {
 	return &Config{
 		Network: "emulator",
 		Flow: FlowConfig{
-			NewUserBalance: 1000.0,
-			BlockTime:      1 * time.Second,
+			NewUserBalance:         1000.0,
+			BlockTime:              1 * time.Second,
+			InitTransactionsFolder: "", // Empty string means use root aether folder (no subfolder filtering)
 		},
 		Indexer: IndexerConfig{
 			PollingInterval: 200 * time.Millisecond,
