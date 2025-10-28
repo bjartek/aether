@@ -10,6 +10,7 @@ import (
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/config"
 	"github.com/bjartek/aether/pkg/flow"
+	"github.com/bjartek/aether/pkg/frontend"
 	"github.com/bjartek/aether/pkg/logs"
 	"github.com/bjartek/aether/pkg/tabbedtui"
 	"github.com/bjartek/aether/pkg/ui"
@@ -41,7 +42,7 @@ func main() {
 	if *debugFlag {
 		// Delete existing debug log file
 		_ = os.Remove("aether-debug.log")
-		
+
 		// Create new debug log file
 		debugLogFile, err := os.OpenFile("aether-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
@@ -49,13 +50,13 @@ func main() {
 			os.Exit(1)
 		}
 		defer debugLogFile.Close()
-		
+
 		debugLogger = zerolog.New(debugLogFile).
 			With().
 			Timestamp().
 			Logger().
 			Level(zerolog.DebugLevel)
-		
+
 		debugLogger.Info().Msg("Debug logging enabled")
 	} else {
 		// No debug logging - use no-op logger
@@ -117,6 +118,7 @@ func main() {
 	var gateway *flow.Gateway
 	var gatewayCfg gatewayConfig.Config
 	var emulatorReady chan struct{}
+	var frontendManager *frontend.FrontendManager
 
 	if cfg.Network == "emulator" {
 		// Local mode: start emulator, dev wallet, and EVM gateway
@@ -192,19 +194,26 @@ func main() {
 	// Now create the Bubble Tea program with config
 	p := tea.NewProgram(
 		model,
-		tea.WithAltScreen(), // Use alternate screen buffe
+		tea.WithAltScreen(), // Use alternate screen buffer
 	)
 
 	// Start EVM gateway after emulator is ready (only in local mode)
 	if cfg.Network == "emulator" {
 		go func() {
-			gatewayLogger.Info().Msg("Waiting for emulator to be ready...")
-			<-emulatorReady
-			// Wait a few seconds for emulator to fully initialize
-			time.Sleep(3 * time.Second)
-			gatewayLogger.Info().Msg("Starting EVM gateway bootstrap...")
+			<-emulatorReady // Wait for emulator to be ready
+			gatewayLogger.Info().Msg("Starting EVM gateway...")
 			gateway.Start(gatewayCfg)
-			<-gateway.Ready()
+		}()
+	}
+
+	// Start frontend process if configured (after emulator is ready)
+	if cfg.FrontendCommand != "" {
+		go func() {
+			<-emulatorReady // Wait for emulator to be ready
+			frontendManager = frontend.NewFrontendManager(cfg.FrontendCommand, logger)
+			if err := frontendManager.Start(p); err != nil {
+				logger.Error().Err(err).Msg("Failed to start frontend process")
+			}
 		}()
 	}
 
@@ -219,14 +228,14 @@ func main() {
 	// This will drain any buffered logs and start sending new logs to the UI
 	logWriter.AttachProgram(p)
 
-	// Run the program - this blocks until the user quits
+	// Start the Bubble Tea program
 	if _, err := p.Run(); err != nil {
-		fmt.Printf("Error running TUI: %v\n", err)
-		os.Exit(1)
+		logger.Fatal().Err(err).Msg("Failed to run Bubble Tea program")
 	}
 
-	// Clean up
 	aetherLogger.Info().Msg("Shutting down...")
+
+	// Cleanup (deferred functions will run here)
 	logWriter.Close()
 	if cfg.Network == "emulator" {
 		// Only stop local services if they were started
@@ -237,6 +246,13 @@ func main() {
 		emu.Stop()
 		walletLogger.Info().Msg("Stopping dev wallet...")
 		dw.Stop()
+	}
+	if cfg.FrontendCommand != "" {
+		if err := frontendManager.Stop(); err != nil {
+			aetherLogger.Error().Err(err).Msg("Failed to stop frontend process")
+		} else {
+			aetherLogger.Info().Msg("Frontend process stopped")
+		}
 	}
 	aetherLogger.Info().Msg("Stopping aether server...")
 	a.Stop()

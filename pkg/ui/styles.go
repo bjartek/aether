@@ -31,6 +31,7 @@ var (
 	// Semantic color mappings
 	primaryColor   = solarBlue
 	secondaryColor = solarCyan
+	tertiaryColor  = solarGreen
 	accentColor    = base1
 	mutedColor     = base01
 	borderColor    = base01
@@ -41,17 +42,17 @@ var (
 
 	// Dashboard styles
 	sectionStyle = lipgloss.NewStyle().
-			MarginBottom(2)
+		MarginBottom(2)
 
 	labelStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(secondaryColor)
+		Bold(true).
+		Foreground(secondaryColor)
 
 	valueStyle = lipgloss.NewStyle().
-			Foreground(accentColor)
+		Foreground(accentColor)
 
 	dimStyle = lipgloss.NewStyle().
-			Foreground(mutedColor)
+		Foreground(mutedColor)
 )
 
 // GetTabbedStyles returns the tabbedtui.Styles configured with our theme colors

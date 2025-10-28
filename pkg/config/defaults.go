@@ -72,5 +72,6 @@ func DefaultConfig() *Config {
 				Sort:             "asc", // Show newest first
 			},
 		},
+		FrontendCommand: "npm start",
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/bjartek/aether/pkg/aether"
 	"github.com/bjartek/aether/pkg/config"
+	"github.com/bjartek/aether/pkg/events"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -40,6 +41,11 @@ type DashboardView struct {
 	selectedInitFolder  string         // The folder being used for init transactions (empty = root)
 	interactiveMode     bool           // If true, user needs to select folder
 	aetherServer        *aether.Aether // Reference to server for running init transactions
+
+	// Frontend box
+	frontendCommand string
+	frontendStatus  string // "Running" or "Stopped"
+	frontendPorts   []string
 
 	// Layout
 	width  int
@@ -77,6 +83,11 @@ func NewDashboardViewWithConfig(cfg *config.Config, logger zerolog.Logger, aethe
 		{Name: "EVM Gateway (Profiler)", Port: fmt.Sprintf("%d", cfg.Ports.EVM.Profiler), Status: "Starting..."},
 	}
 
+	frontendStatus := "Not configured"
+	if cfg.FrontendCommand != "" {
+		frontendStatus = "Starting..."
+	}
+
 	return &DashboardView{
 		services:            services,
 		servicesReady:       false,
@@ -93,6 +104,9 @@ func NewDashboardViewWithConfig(cfg *config.Config, logger zerolog.Logger, aethe
 		selectedInitFolder:  cfg.Flow.InitTransactionsFolder, // Store configured folder
 		interactiveMode:     cfg.Flow.InitTransactionsInteractive,
 		aetherServer:        aetherServer,
+		frontendCommand:     cfg.FrontendCommand,
+		frontendStatus:      frontendStatus,
+		frontendPorts:       []string{},
 		logger:              logger,
 	}
 }
@@ -148,6 +162,12 @@ func (dv *DashboardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Int("folderCount", len(msg.Folders)).
 			Msg("Folder selection received")
 
+	case events.FrontendPortMsg:
+		// Add port to frontend ports list
+		dv.frontendPorts = append(dv.frontendPorts, msg.Port)
+		dv.frontendStatus = "Running"
+		dv.logger.Debug().Str("port", msg.Port).Msg("Frontend port detected")
+
 	case tea.KeyMsg:
 		// Handle folder selection navigation
 		if dv.folderSelection != nil {
@@ -169,11 +189,11 @@ func (dv *DashboardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Int("index", dv.selectedFolderIndex).
 					Str("folder", selectedFolder).
 					Msg("User selected init folder")
-				
+
 				// Store selected folder and clear selection UI
 				dv.selectedInitFolder = selectedFolder
 				dv.folderSelection = nil
-				
+
 				// Run init transactions in background
 				if dv.aetherServer != nil {
 					go func() {
@@ -182,7 +202,7 @@ func (dv *DashboardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}()
 				}
-				
+
 				return dv, nil
 			}
 		}
@@ -228,6 +248,17 @@ func (dv *DashboardView) View() string {
 			"  ", // spacing
 			blockHeightBox,
 		)
+
+		// Add frontend box if configured
+		if dv.frontendCommand != "" {
+			frontendBox := dv.renderFrontendBox(boxWidth, boxHeight)
+			// Create a second row with the frontend box
+			secondRow := lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				frontendBox,
+			)
+			boxes = lipgloss.JoinVertical(lipgloss.Left, boxes, secondRow)
+		}
 	} else {
 		// Testnet/Mainnet: only show accounts and block height
 		boxWidth := (dv.width - 4) / 2 // -4 for spacing between boxes
@@ -336,7 +367,7 @@ func (dv *DashboardView) renderAccountsBox(width, height int) string {
 
 		// Get all address-name pairs from registry
 		addressToName := dv.accountRegistry.DebugDump()
-		
+
 		// Create sorted list of accounts: service-account first, then alphabetically
 		type accountPair struct {
 			name    string
@@ -344,7 +375,7 @@ func (dv *DashboardView) renderAccountsBox(width, height int) string {
 		}
 		var accounts []accountPair
 		var serviceAccount *accountPair
-		
+
 		for address, name := range addressToName {
 			if name == "service-account" {
 				serviceAccount = &accountPair{name: name, address: address}
@@ -352,12 +383,12 @@ func (dv *DashboardView) renderAccountsBox(width, height int) string {
 				accounts = append(accounts, accountPair{name: name, address: address})
 			}
 		}
-		
+
 		// Sort non-service accounts alphabetically
 		sort.Slice(accounts, func(i, j int) bool {
 			return accounts[i].name < accounts[j].name
 		})
-		
+
 		// Show service-account first if it exists
 		if serviceAccount != nil {
 			line := fmt.Sprintf("%s %s\n  %s\n",
@@ -367,7 +398,7 @@ func (dv *DashboardView) renderAccountsBox(width, height int) string {
 			)
 			content.WriteString(line)
 		}
-		
+
 		// Show all other accounts in alphabetical order
 		for _, account := range accounts {
 			line := fmt.Sprintf("%s %s\n  %s\n",
@@ -428,7 +459,7 @@ func (dv *DashboardView) renderInitTransactionsBox(width, height int) string {
 	} else if len(dv.initTransactions) == 0 {
 		// No transactions yet - show status
 		content.WriteString(headerStyle.Render("⏳ Init Transactions") + "\n\n")
-		
+
 		// Show appropriate message based on mode and network
 		if dv.network == "emulator" {
 			if dv.interactiveMode && dv.selectedInitFolder == "" {
@@ -512,12 +543,12 @@ func (dv *DashboardView) renderBlockHeightBox(width, height int) string {
 
 	// Network info
 	content.WriteString(labelStyle.Render("Network: ") + valueStyle.Render(dv.network) + "\n")
-	
+
 	// Only show block time for emulator (it's configurable there)
 	if dv.network == "emulator" {
 		content.WriteString(dimStyle.Render(fmt.Sprintf("Block time: %s", dv.blockTime)) + "\n")
 	}
-	
+
 	content.WriteString(dimStyle.Render(fmt.Sprintf("Polling: %s", dv.indexerPolling)) + "\n\n")
 
 	// Block height
@@ -531,6 +562,46 @@ func (dv *DashboardView) renderBlockHeightBox(width, height int) string {
 		content.WriteString(blockStyle.Render(fmt.Sprintf("Height: %d", dv.latestBlockHeight)))
 		content.WriteString("\n\n")
 		content.WriteString(dimStyle.Render("Blockchain is live"))
+	}
+
+	return boxStyle.Render(content.String())
+}
+
+// renderFrontendBox renders the frontend status box
+func (dv *DashboardView) renderFrontendBox(width, height int) string {
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(tertiaryColor).
+		PaddingLeft(1).
+		PaddingRight(1)
+
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(tertiaryColor).
+		Background(base02).
+		PaddingLeft(1).
+		PaddingRight(1).
+		MarginBottom(1)
+
+	var content strings.Builder
+
+	content.WriteString(headerStyle.Render("🌐 Frontend") + "\n\n")
+
+	if dv.frontendCommand == "" {
+		content.WriteString(dimStyle.Render("Not configured"))
+	} else {
+		content.WriteString(labelStyle.Render("Command: ") + valueStyle.Render(dv.frontendCommand) + "\n")
+		content.WriteString(labelStyle.Render("Status: ") + valueStyle.Render(dv.frontendStatus) + "\n")
+
+		// Show detected ports
+		if len(dv.frontendPorts) > 0 {
+			content.WriteString("\n" + labelStyle.Render("Ports: ") + "\n")
+			for _, port := range dv.frontendPorts {
+				content.WriteString(fmt.Sprintf("• %s\n", valueStyle.Render(port)))
+			}
+		} else {
+			content.WriteString(dimStyle.Render("No ports detected yet"))
+		}
 	}
 
 	return boxStyle.Render(content.String())
@@ -575,4 +646,3 @@ func (dv *DashboardView) IsCapturingInput() bool {
 	// Capture input when folder selection is active
 	return dv.folderSelection != nil
 }
-

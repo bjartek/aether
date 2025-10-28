@@ -6,20 +6,21 @@ import (
 
 // Config represents the complete Aether configuration
 type Config struct {
-	Network string          `mapstructure:"network"`
-	Flow    FlowConfig      `mapstructure:"flow"`
-	Indexer IndexerConfig   `mapstructure:"indexer"`
-	Ports   PortsConfig     `mapstructure:"ports"`
-	EVM     EVMConfig       `mapstructure:"evm"`
-	Logging LoggingConfig   `mapstructure:"logging"`
-	UI      UIConfig        `mapstructure:"ui"`
+	Network         string        `mapstructure:"network"`
+	Flow            FlowConfig    `mapstructure:"flow"`
+	Indexer         IndexerConfig `mapstructure:"indexer"`
+	Ports           PortsConfig   `mapstructure:"ports"`
+	EVM             EVMConfig     `mapstructure:"evm"`
+	Logging         LoggingConfig `mapstructure:"logging"`
+	UI              UIConfig      `mapstructure:"ui"`
+	FrontendCommand string        `mapstructure:"frontend_command" validate:"omitempty"` // Command to run the frontend process
 }
 
 // FlowConfig contains Flow blockchain settings
 type FlowConfig struct {
-	NewUserBalance             float64       `mapstructure:"new_user_balance"`
-	BlockTime                  time.Duration `mapstructure:"block_time"`
-	InitTransactionsFolder     string        `mapstructure:"init_transactions_folder"`     // Folder to scan for init transactions (relative to aether folder)
+	NewUserBalance              float64       `mapstructure:"new_user_balance"`
+	BlockTime                   time.Duration `mapstructure:"block_time"`
+	InitTransactionsFolder      string        `mapstructure:"init_transactions_folder"`      // Folder to scan for init transactions (relative to aether folder)
 	InitTransactionsInteractive bool          `mapstructure:"init_transactions_interactive"` // If true, prompt user to select folder at startup
 }
 

@@ -115,7 +115,21 @@ ui:
     show_raw_addresses: false   # Show raw addresses instead of account names
     time_format: "15:04:05"     # Time format for UI timestamps
     sort: "asc"                 # Sort order for transactions and events ("asc" = oldest first, "desc" = newest first)
-```
+
+## Frontend Integration
+
+Aether can launch and manage a frontend process alongside the blockchain services. To enable this feature:
+
+1. Add the `frontend_command` to your `aether.yaml` configuration:
+   ```yaml
+   frontend_command: npm start  # Your frontend start command
+   ```
+
+2. The dashboard will display the frontend status and ports it's listening on
+
+3. The frontend process will be automatically started after the emulator is ready
+
+4. The process will be stopped cleanly when Aether exits
 
 ### Minimal Configuration Example
 
@@ -187,5 +201,3 @@ run `make` to build the binary start it and run it in the example folder
  - follows mainnet or testnet
  - allows to save a transaction to run be run later
  - allows the user to run transaction if key configured in flow.json
-
-
