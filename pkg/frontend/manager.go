@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bjartek/aether/pkg/events"
@@ -81,41 +83,20 @@ func (m *FrontendManager) Start(teaProgram *tea.Program) error {
 
 	m.logger.Info().Str("command", m.cmdString).Msg("Starting frontend process")
 
-	var cmd *exec.Cmd
+	effectiveCmd := strings.Trim(m.cmdString, "\"'")
+	parts := strings.Fields(effectiveCmd)
+	if len(parts) == 0 {
+		return fmt.Errorf("frontend command is empty")
+	}
 
-	if runtime.GOOS == "windows" {
-		// On Windows, use cmd.exe
-		cmd = exec.Command("cmd.exe", "/C", m.cmdString)
-		m.logger.Debug().Msg("Using cmd.exe for Windows")
-
-		// Log environment variables for debugging
-		m.logger.Debug().Str("path", os.Getenv("PATH")).Msg("Environment PATH")
-		m.logger.Debug().Str("userprofile", os.Getenv("USERPROFILE")).Msg("Environment USERPROFILE")
-
-	} else {
-		// Unix-like systems
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/bash"
-		}
-		m.logger.Debug().Str("shell", shell).Msg("Using shell for frontend command")
-
-		// Log environment variables for debugging
-		m.logger.Debug().Strs("path", strings.Split(os.Getenv("PATH"), ":")).Msg("Environment PATH")
-		m.logger.Debug().Str("home", os.Getenv("HOME")).Msg("Environment HOME")
-		m.logger.Debug().Str("user", os.Getenv("USER")).Msg("Environment USER")
-
-		// Remove any surrounding quotes from the command string
-		effectiveCmd := strings.Trim(m.cmdString, "\"'")
-		m.logger.Debug().Str("effective_command", effectiveCmd).Msg("Using effective command")
-
-		cmd = exec.Command(shell, "-l", "-c", effectiveCmd)
+	cmd := exec.Command(parts[0], parts[1:]...)
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}
 
 	if wd, err := os.Getwd(); err != nil {
 		m.logger.Warn().Err(err).Msg("Failed to get working directory for frontend process; using shell default")
 	} else {
-		m.logger.Debug().Str("working_dir", wd).Msg("Setting frontend process working directory")
 		cmd.Dir = wd
 	}
 
@@ -259,16 +240,42 @@ func (m *FrontendManager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.running {
+	if !m.running || m.cmd == nil || m.cmd.Process == nil {
 		return nil
 	}
 
 	m.logger.Info().Msg("Stopping frontend process")
-	if err := m.cmd.Process.Kill(); err != nil {
+	var err error
+
+	if runtime.GOOS == "windows" {
+		err = m.cmd.Process.Kill()
+	} else {
+		pgid, pgErr := syscall.Getpgid(m.cmd.Process.Pid)
+		if pgErr != nil {
+			err = m.cmd.Process.Kill()
+		} else {
+			// Attempt graceful shutdown
+			termErr := syscall.Kill(-pgid, syscall.SIGTERM)
+			if termErr != nil && !errors.Is(termErr, syscall.ESRCH) {
+				err = termErr
+			}
+
+			// Give process a brief moment to exit before forcing
+			time.Sleep(250 * time.Millisecond)
+
+			killErr := syscall.Kill(-pgid, syscall.SIGKILL)
+			if killErr != nil && !errors.Is(killErr, syscall.ESRCH) {
+				err = killErr
+			}
+		}
+	}
+
+	if err != nil {
 		m.logger.Error().Err(err).Msg("Failed to stop frontend process")
 		return err
 	}
 	m.running = false
+	m.cmd = nil
 	return nil
 }
 
