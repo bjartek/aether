@@ -26,7 +26,10 @@ require (
 	github.com/spf13/viper v1.21.0
 )
 
-require github.com/stretchr/testify v1.11.1
+require (
+	github.com/hexops/autogold v1.3.1
+	github.com/stretchr/testify v1.11.1
+)
 
 require (
 	cloud.google.com/go v0.120.0 // indirect
@@ -129,7 +132,6 @@ require (
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
-	github.com/hexops/autogold v1.3.1 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/hexops/valast v1.4.4 // indirect
 	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
