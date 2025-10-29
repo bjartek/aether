@@ -10,13 +10,18 @@ see casts
 - iteration 4: <https://asciinema.org/a/U6cj7zVq9998NBOeu3ZlD3Ryz> execute
 - iteration 5: <https://asciinema.org/a/4XBuCXmxXcenpYpmGR7uSFApd> save interactions
 
-## How to
+## Install
 
-- go build the binary, or install it with go install
+It is currently not possible to install aether with go install because we use my fork of flow-evm-gateway since some issues are not solved yet. 
+
+- check out this project
+- run `go install`
 - navigate to a folder with flow.json
 - run `aether`
 
 ### Command Line Options
+
+Most of aether is configured using a configuration file
 
 ```bash
 # Run with default settings
@@ -38,11 +43,8 @@ For troubleshooting and reporting issues, see [DEBUGGING.md](DEBUGGING.md).
 
 ## Configuration
 
-Aether can be configured using an `aether.yaml` file in your project directory. If no configuration file is present, sensible defaults are used.
+Aether can be configured using viper with an `aether.yaml` file . If no configuration file is present, sensible defaults are used.
 
-### Configuration File Location
-
-Aether looks for `aether.yaml` in the current directory where you run the command.
 
 ### Configuration Structure
 
@@ -116,20 +118,7 @@ ui:
     time_format: "15:04:05"     # Time format for UI timestamps
     sort: "asc"                 # Sort order for transactions and events ("asc" = oldest first, "desc" = newest first)
 
-## Frontend Integration
-
-Aether can launch and manage a frontend process alongside the blockchain services. To enable this feature:
-
-1. Add the `frontend_command` to your `aether.yaml` configuration:
-   ```yaml
-   frontend_command: npm start  # Your frontend start command
-   ```
-
-2. The dashboard will display the frontend status and ports it's listening on
-
-3. The frontend process will be automatically started after the emulator is ready
-
-4. The process will be stopped cleanly when Aether exits
+  frontend_command: npm start  # Your frontend start command
 
 ### Minimal Configuration Example
 

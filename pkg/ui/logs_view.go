@@ -137,14 +137,16 @@ func (lv *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return lv, nil
 
 	case logs.LogLineMsg:
+		wasAtBottom := lv.viewport.AtBottom()
 		lv.lines = append(lv.lines, msg.Line)
 		if len(lv.lines) > lv.maxLines {
 			lv.lines = lv.lines[len(lv.lines)-lv.maxLines:]
 		}
 		lv.applyFilter()
 		lv.updateViewport()
-		if lv.autoScroll {
+		if lv.autoScroll || wasAtBottom {
 			lv.viewport.GotoBottom()
+			lv.autoScroll = true
 		}
 		return lv, nil
 
@@ -180,13 +182,50 @@ func (lv *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return lv, tabbedtui.InputHandled()
 			}
 		}
-	}
+		
+		// Forward to viewport if not in filter mode
+		if !lv.filterMode {
+			switch {
+			case key.Matches(msg, lv.keys.GotoEnd):
+				lv.autoScroll = true
+				lv.viewport.GotoBottom()
+				return lv, tabbedtui.InputHandled()
+			case key.Matches(msg, lv.keys.GotoTop):
+				lv.autoScroll = false
+				lv.viewport.GotoTop()
+				return lv, tabbedtui.InputHandled()
+			case key.Matches(msg, lv.keys.LineUp),
+				key.Matches(msg, lv.keys.LineDown),
+				key.Matches(msg, lv.keys.PageUp),
+				key.Matches(msg, lv.keys.PageDown):
+				lv.autoScroll = false
+			}
+			var cmd tea.Cmd
+			lv.viewport, cmd = lv.viewport.Update(msg)
+			if lv.viewport.AtBottom() {
+				lv.autoScroll = true
+			}
+			return lv, cmd
+		}
 
-	// Forward to viewport if not in filter mode
-	if !lv.filterMode {
+	case tea.MouseMsg:
+		if lv.filterMode {
+			return lv, nil
+		}
+
+		switch msg.Type {
+		case tea.MouseWheelUp, tea.MouseWheelDown:
+			lv.autoScroll = false
+		}
+
 		var cmd tea.Cmd
 		lv.viewport, cmd = lv.viewport.Update(msg)
+		if lv.viewport.AtBottom() {
+			lv.autoScroll = true
+		}
+
 		return lv, cmd
+
 	}
 
 	return lv, nil
