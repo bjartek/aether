@@ -67,7 +67,7 @@ ui:
     show_event_fields: true   # Show event field names in UI
     show_raw_addresses: false # Show raw addresses instead of names
     time_format: "15:04:05"   # Time format for UI timestamps
-    sort: "asc"               # Default sort order (asc/desc)
+    sort: "desc"               # Default sort order (asc/desc)
 
 # Frontend process configuration
-frontend_command: npm start  # Command to start frontend process (e.g. npm start)
+#frontend_command: npm run dev  # Command to start frontend process (e.g. npm start)

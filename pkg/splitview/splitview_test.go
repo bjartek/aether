@@ -236,7 +236,7 @@ func TestUpdate_WindowSizeMsg(t *testing.T) {
 	}
 }
 
-func TestUpdate_ToggleFullscreen(t *testing.T) {
+func TestUpdate_EnterAndExitFullscreen(t *testing.T) {
 	m := NewSplitView(testColumns, WithRows(testRows))
 
 	if m.fullDetailMode {
@@ -251,12 +251,21 @@ func TestUpdate_ToggleFullscreen(t *testing.T) {
 		t.Error("expected fullDetailMode to be true after space key")
 	}
 
-	// Toggle back
+	// Enter key also enters fullscreen (doesn't toggle back)
 	updatedModel, _ = updatedSplit.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updatedSplit = updatedModel.(*SplitViewModel)
 
+	// Should still be in fullscreen mode
+	if !updatedSplit.fullDetailMode {
+		t.Error("expected fullDetailMode to remain true after enter key in fullscreen")
+	}
+
+	// Use Esc to exit fullscreen
+	updatedModel, _ = updatedSplit.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updatedSplit = updatedModel.(*SplitViewModel)
+
 	if updatedSplit.fullDetailMode {
-		t.Error("expected fullDetailMode to be false after enter key")
+		t.Error("expected fullDetailMode to be false after esc key")
 	}
 }
 
@@ -299,8 +308,8 @@ func TestKeyMap_ShortHelp(t *testing.T) {
 	km := NewKeyMap()
 	shortHelp := km.ShortHelp()
 
-	if len(shortHelp) != 3 {
-		t.Errorf("expected 3 short help bindings, got %d", len(shortHelp))
+	if len(shortHelp) != 2 {
+		t.Errorf("expected 2 short help bindings, got %d", len(shortHelp))
 	}
 }
 
@@ -308,8 +317,8 @@ func TestKeyMap_FullHelp(t *testing.T) {
 	km := NewKeyMap()
 	fullHelp := km.FullHelp()
 
-	if len(fullHelp) != 2 {
-		t.Errorf("expected 2 groups in full help, got %d", len(fullHelp))
+	if len(fullHelp) != 1 {
+		t.Errorf("expected 1 group in full help, got %d", len(fullHelp))
 	}
 }
 

@@ -110,8 +110,8 @@ func applyLogLevelInheritance(cfg *Config) {
 	if cfg.Logging.Level.DevWallet == "" {
 		cfg.Logging.Level.DevWallet = cfg.Logging.Level.Global
 	}
-	// EVMGateway has its own default (error), so only inherit if explicitly empty
+	// EVMGateway defaults to "error" instead of inheriting from global
 	if cfg.Logging.Level.EVMGateway == "" {
-		cfg.Logging.Level.EVMGateway = cfg.Logging.Level.Global
+		cfg.Logging.Level.EVMGateway = "error"
 	}
 }

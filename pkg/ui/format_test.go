@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/hexops/autogold"
 )
 
 func TestFormatFieldValueWithRegistry_SimpleTypes(t *testing.T) {
@@ -325,66 +327,40 @@ func TestFormatFieldValueWithRegistry_EdgeCases(t *testing.T) {
 func TestFormatFieldValueWithRegistry_LongHexString(t *testing.T) {
 	// Real-world test case - long hex string that must wrap correctly within viewport width
 	hexString := "0x61636365737328616c6c2920636f6e74726163742046434c207b0a202061636365737328616c6c29206c65742073746f72616765506174683a2053746f72616765506174680a0a202061636365737328616c6c29207374727563742046434c4b6579207b0a20202020616363"
-	
+
 	tests := []struct {
 		name     string
 		indent   string
 		maxWidth int
-		want     string
+		want     autogold.Value
 	}{
 		{
 			name:     "hex string wraps at 80 chars",
 			indent:   "    ",
 			maxWidth: 80,
-			want: `0x61636365737328616c6c2920636f6e74726163742046434c207b0a2020616363657373286
-    16c6c29206c65742073746f72616765506174683a2053746f72616765506174680a0a2020616
-    3636573732861 6c6c29207374727563742046434c4b6579207b0a20202020616363`,
+			want: autogold.Want("hex string wraps at 80 chars", `0x61636365737328616c6c2920636f6e74726163742046434c207b0a20206163636573732861
+    6c6c29206c65742073746f72616765506174683a2053746f72616765506174680a0a20206163
+    6365737328616c6c29207374727563742046434c4b6579207b0a20202020616363`),
 		},
 		{
 			name:     "hex string wraps at 50 chars with small indent",
 			indent:   "  ",
 			maxWidth: 50,
-			want: `0x61636365737328616c6c2920636f6e7472616374204643
-  4c207b0a20206163636365737328616c6c29206c6574207374
+			want: autogold.Want("hex string wraps at 50 chars with small indent", `0x61636365737328616c6c2920636f6e7472616374204643
+  4c207b0a202061636365737328616c6c29206c6574207374
   6f72616765506174683a2053746f72616765506174680a0a
   202061636365737328616c6c29207374727563742046434c
-  4b6579207b0a20202020616363`,
+  4b6579207b0a20202020616363`),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := FormatFieldValueWithRegistry(hexString, tt.indent, nil, false, tt.maxWidth)
-			
-			if got != tt.want {
-				t.Errorf("FormatFieldValueWithRegistry() output mismatch\nGot:\n%s\n\nWant:\n%s", got, tt.want)
-				
-				// Show line-by-line comparison
-				gotLines := strings.Split(got, "\n")
-				wantLines := strings.Split(tt.want, "\n")
-				t.Logf("\nLine-by-line comparison:")
-				maxLines := len(gotLines)
-				if len(wantLines) > maxLines {
-					maxLines = len(wantLines)
-				}
-				for i := 0; i < maxLines; i++ {
-					gotLine := ""
-					wantLine := ""
-					if i < len(gotLines) {
-						gotLine = gotLines[i]
-					}
-					if i < len(wantLines) {
-						wantLine = wantLines[i]
-					}
-					match := "✓"
-					if gotLine != wantLine {
-						match = "✗"
-					}
-					t.Logf("%s Line %d (len=%d vs %d):\n  Got:  %q\n  Want: %q", 
-						match, i, len(gotLine), len(wantLine), gotLine, wantLine)
-				}
-			}
-			
+
+			// Use autogold to compare the entire string
+			tt.want.Equal(t, got)
+
 			// Verify no line exceeds maxWidth
 			lines := strings.Split(got, "\n")
 			for i, line := range lines {

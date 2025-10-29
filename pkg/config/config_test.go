@@ -158,11 +158,8 @@ func TestLogLevelInheritance(t *testing.T) {
 	cfg := &Config{
 		Logging: LoggingConfig{
 			Level: LogLevelConfig{
-				Global:     "debug",
-				Aether:     "",
-				Emulator:   "info",
-				DevWallet:  "",
-				EVMGateway: "",
+				Global:   "debug",
+				Emulator: "info",
 			},
 		},
 	}
