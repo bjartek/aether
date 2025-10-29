@@ -80,7 +80,7 @@ func DefaultConfig() *Config {
 				ShowEventFields:  true,
 				ShowRawAddresses: false,
 				TimeFormat:       "15:04:05",
-				Sort:             "desc", // Show oldest first
+				Sort:             "asc", // Show oldest first
 			},
 		},
 		//set this only if you want to run the frontned as part of aether, totally optional
