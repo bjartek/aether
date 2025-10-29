@@ -2,16 +2,13 @@ package frontend
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/bjartek/aether/pkg/events"
@@ -90,9 +87,7 @@ func (m *FrontendManager) Start(teaProgram *tea.Program) error {
 	}
 
 	cmd := exec.Command(parts[0], parts[1:]...)
-	if runtime.GOOS != "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	}
+	setupProcessGroup(cmd)
 
 	if wd, err := os.Getwd(); err != nil {
 		m.logger.Warn().Err(err).Msg("Failed to get working directory for frontend process; using shell default")
@@ -245,30 +240,7 @@ func (m *FrontendManager) Stop() error {
 	}
 
 	m.logger.Info().Msg("Stopping frontend process")
-	var err error
-
-	if runtime.GOOS == "windows" {
-		err = m.cmd.Process.Kill()
-	} else {
-		pgid, pgErr := syscall.Getpgid(m.cmd.Process.Pid)
-		if pgErr != nil {
-			err = m.cmd.Process.Kill()
-		} else {
-			// Attempt graceful shutdown
-			termErr := syscall.Kill(-pgid, syscall.SIGTERM)
-			if termErr != nil && !errors.Is(termErr, syscall.ESRCH) {
-				err = termErr
-			}
-
-			// Give process a brief moment to exit before forcing
-			time.Sleep(250 * time.Millisecond)
-
-			killErr := syscall.Kill(-pgid, syscall.SIGKILL)
-			if killErr != nil && !errors.Is(killErr, syscall.ESRCH) {
-				err = killErr
-			}
-		}
-	}
+	err := stopProcess(m.cmd)
 
 	if err != nil {
 		m.logger.Error().Err(err).Msg("Failed to stop frontend process")
