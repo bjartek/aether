@@ -7,11 +7,11 @@ This project uses automated semantic versioning and release management with `go-
 When you push to `main`, the release workflow automatically:
 1. **Analyzes commit messages** to determine version bump
 2. **Creates a git tag** based on conventional commits
-3. **Runs GoReleaser** to build binaries for multiple platforms
+3. **Runs GoReleaser** with cross-compilation toolchains to build binaries
 4. **Creates a GitHub release** with:
    - Generated changelog
-   - Built binaries (Linux amd64/arm64, macOS amd64)
-   - Archives (tar.gz)
+   - Built binaries (Linux, macOS, Windows - all amd64/arm64)
+   - Archives (tar.gz for Linux/macOS, zip for Windows)
    - Checksums
 
 ## Commit Message Format
@@ -99,11 +99,11 @@ ls -la dist/
 ## Supported Platforms
 
 GoReleaser builds for:
-- **Linux**: amd64, arm64
-- **macOS**: amd64 (Intel)
+- **Linux**: amd64 (x86_64), arm64 (aarch64)
+- **macOS**: amd64 (Intel), arm64 (Apple Silicon M1/M2/M3)
+- **Windows**: amd64 (x86_64), arm64
 
-> **Note**: macOS ARM64 (Apple Silicon) requires a native macOS runner for CGO cross-compilation. 
-> If you need Apple Silicon support, you can build locally on an M1/M2/M3 Mac with `go build`.
+> **Note**: Uses `goreleaser-cross` Docker image with pre-configured cross-compilation toolchains (similar to Flow CLI) to build for all platforms with CGO support.
 
 ## Version Numbers
 
