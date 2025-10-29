@@ -1,6 +1,10 @@
-.PHONY: run build clean coveralls cover install-gotestsum test-report
+.PHONY: run build clean coveralls cover install-gotestsum test-report release
 
 .DEFAULT_GOAL := run
+
+# Configuration for goreleaser
+PACKAGE_NAME := github.com/bjartek/aether
+GOLANG_CROSS_VERSION ?= v1.25.0
 
 run: build
 	cd example && ../aether  && cd ..
@@ -22,3 +26,13 @@ install-gotestsum:
 
 test-report: install-gotestsum
 	gotestsum -f testname --no-color --hide-summary failed --junitfile test-result.xml
+
+release:
+	docker run \
+		--rm \
+		--env-file .release-env \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		-v `pwd`:/go/src/$(PACKAGE_NAME) \
+		-w /go/src/$(PACKAGE_NAME) \
+		ghcr.io/goreleaser/goreleaser-cross:${GOLANG_CROSS_VERSION} \
+		release --clean

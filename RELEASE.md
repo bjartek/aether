@@ -4,14 +4,23 @@ This project uses automated semantic versioning and release management with `go-
 
 ## How It Works
 
-When you push to `main`, the release workflow automatically:
-1. **Analyzes commit messages** to determine version bump
+This is a two-step process (similar to Flow CLI):
+
+### Step 1: Create Release (CI Workflow)
+When you push to `main`:
+1. **go-semantic-release** analyzes commit messages
 2. **Creates a git tag** based on conventional commits
-3. **Runs GoReleaser** with cross-compilation toolchains to build binaries
-4. **Creates a GitHub release** with:
-   - Generated changelog
-   - Built binaries (Linux, macOS, Windows - all amd64/arm64)
-   - Archives (tar.gz for Linux/macOS, zip for Windows)
+3. **Publishes a GitHub release** (draft with changelog)
+
+### Step 2: Build Binaries (Release Workflow)
+When a release is published:
+1. **Triggers automatically** on release publication
+2. **Runs `make release`** which uses `goreleaser-cross` Docker image
+3. **Builds binaries** for all platforms with CGO support
+4. **Uploads binaries** to the GitHub release:
+   - Linux amd64/arm64
+   - macOS amd64/arm64
+   - Windows amd64/arm64
    - Checksums
 
 ## Commit Message Format
@@ -73,12 +82,16 @@ BREAKING CHANGE: Configuration format has changed from YAML to TOML
    git push origin main
    ```
 
-2. **CI runs automatically:**
+2. **CI workflow runs:**
    - Linting, tests, and coverage checks run
-   - If all pass, `go-semantic-release` analyzes commits
-   - A new version tag is created (e.g., `v1.2.0`)
-   - GoReleaser builds binaries for all platforms
-   - Binaries are uploaded to GitHub release
+   - If all pass, `go-semantic-release` creates a tag (e.g., `v1.2.0`)
+   - A GitHub release is published
+
+3. **Release workflow triggers automatically:**
+   - Detects the new release publication
+   - Runs `make release` using goreleaser-cross Docker image
+   - Builds binaries for all platforms
+   - Uploads binaries to the GitHub release
    - Users can download pre-built binaries
 
 ## Manual Release (if needed)

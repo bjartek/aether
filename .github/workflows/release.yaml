@@ -1,0 +1,26 @@
+name: Build Release
+
+on:
+  release:
+    types: [published]
+
+env:
+  GO_VERSION: "1.25"
+  GOLANG_CROSS_VERSION: "v1.25.0"
+
+jobs:
+  release:
+    name: Release Go Binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Release Environment
+        run: |-
+          echo 'VERSION=${{ github.event.release.tag_name }}' > .release-env
+          echo 'GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}' >> .release-env
+      
+      - name: Build and Release
+        run: make release
