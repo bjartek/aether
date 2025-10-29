@@ -42,7 +42,7 @@ func TestScanning_DefaultBehavior(t *testing.T) {
 	// Create: aether/ folder with files
 	aetherFolder, err := os.MkdirTemp("", "aether-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(aetherFolder)
+	defer func() { _ = os.RemoveAll(aetherFolder) }()
 	
 	t.Logf("\n=== TEST: Default Behavior ===")
 	t.Logf("Config: init_transactions_folder = \"\"")
@@ -103,7 +103,7 @@ func TestScanning_WithSubfolder(t *testing.T) {
 	// Create: aether/ and aether/init/ folders
 	aetherFolder, err := os.MkdirTemp("", "aether-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(aetherFolder)
+	defer func() { _ = os.RemoveAll(aetherFolder) }()
 	
 	initFolder := filepath.Join(aetherFolder, "init")
 	_ = os.Mkdir(initFolder, 0755)
@@ -152,7 +152,7 @@ func TestScanning_WithSubfolder(t *testing.T) {
 func TestScanning_EmptyFolder(t *testing.T) {
 	aetherFolder, err := os.MkdirTemp("", "aether-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(aetherFolder)
+	defer func() { _ = os.RemoveAll(aetherFolder) }()
 	
 	t.Logf("\n=== TEST: Empty Folder ===")
 	t.Logf("Config: init_transactions_folder = \"\"")
@@ -180,7 +180,7 @@ func TestScanning_EmptyFolder(t *testing.T) {
 func TestScanning_OnlyNonTransactionFiles(t *testing.T) {
 	aetherFolder, err := os.MkdirTemp("", "aether-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(aetherFolder)
+	defer func() { _ = os.RemoveAll(aetherFolder) }()
 	
 	t.Logf("\n=== TEST: Only Non-Transaction Files ===")
 	t.Logf("Config: init_transactions_folder = \"\"")
@@ -215,7 +215,7 @@ func TestScanning_OnlyNonTransactionFiles(t *testing.T) {
 func TestScanning_DeepNestedStructure(t *testing.T) {
 	aetherFolder, err := os.MkdirTemp("", "aether-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(aetherFolder)
+	defer func() { _ = os.RemoveAll(aetherFolder) }()
 	
 	t.Logf("\n=== TEST: Deep Nested Structure ===")
 	t.Logf("Config: init_transactions_folder = \"\"")

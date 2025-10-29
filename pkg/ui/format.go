@@ -122,7 +122,8 @@ func isFlowAddress(s string) bool {
 	// Check if the rest are hex characters
 	hexPart := s[2:]
 	for _, c := range hexPart {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		// Apply De Morgan's law: !(A || B || C) becomes !A && !B && !C
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}

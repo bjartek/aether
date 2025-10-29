@@ -49,7 +49,7 @@ func main() {
 			fmt.Printf("Failed to create debug log file: %v\n", err)
 			os.Exit(1)
 		}
-		defer debugLogFile.Close()
+		defer func() { _ = debugLogFile.Close() }()
 
 		debugLogger = zerolog.New(debugLogFile).
 			With().

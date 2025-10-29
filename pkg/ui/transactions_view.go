@@ -204,8 +204,8 @@ func (tv *TransactionsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Handle save dialog input
 		if tv.savingMode {
-			switch {
-			case msg.Type == tea.KeyEnter:
+			switch msg.Type {
+			case tea.KeyEnter:
 				// Save transaction
 				if tv.saveInput.Value() != "" {
 					filename := tv.saveInput.Value()
@@ -222,7 +222,7 @@ func (tv *TransactionsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return tv, nil
 
-			case msg.Type == tea.KeyEsc:
+			case tea.KeyEsc:
 				// Cancel save
 				tv.savingMode = false
 				tv.saveInput.SetValue("")
