@@ -22,3 +22,4 @@ example/sol/lib/
 example/sol/.contract-address
 example/sol/.env
 profile.cov
+.release-env
