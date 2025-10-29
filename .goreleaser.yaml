@@ -11,11 +11,10 @@ builds:
     main: .
     binary: aether
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
@@ -24,6 +23,10 @@ builds:
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
+    # Skip darwin/arm64 cross-compilation (requires macOS runner)
+    ignore:
+      - goos: darwin
+        goarch: arm64
 
 archives:
   - id: aether

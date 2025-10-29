@@ -1,24 +1,18 @@
 # Release Process
 
-This project uses automated semantic versioning and release management.
+This project uses automated semantic versioning and release management with `go-semantic-release`.
 
 ## How It Works
 
-### 1. Semantic Release (Automated Versioning)
-
-When you push to `main`, semantic-release automatically:
-- Analyzes commit messages to determine version bump
-- Generates a changelog
-- Creates a git tag
-- Creates a GitHub release
-
-### 2. GoReleaser (Binary Distribution)
-
-When a new tag is created, GoReleaser automatically:
-- Builds binaries for multiple platforms (Linux, macOS, Windows)
-- Creates archives (tar.gz, zip)
-- Uploads binaries to the GitHub release
-- Generates checksums
+When you push to `main`, the release workflow automatically:
+1. **Analyzes commit messages** to determine version bump
+2. **Creates a git tag** based on conventional commits
+3. **Runs GoReleaser** to build binaries for multiple platforms
+4. **Creates a GitHub release** with:
+   - Generated changelog
+   - Built binaries (Linux amd64/arm64, macOS amd64)
+   - Archives (tar.gz)
+   - Checksums
 
 ## Commit Message Format
 
@@ -81,12 +75,10 @@ BREAKING CHANGE: Configuration format has changed from YAML to TOML
 
 2. **CI runs automatically:**
    - Linting, tests, and coverage checks run
-   - If all pass, semantic-release analyzes commits
+   - If all pass, `go-semantic-release` analyzes commits
    - A new version tag is created (e.g., `v1.2.0`)
-
-3. **Release workflow triggers:**
    - GoReleaser builds binaries for all platforms
-   - Binaries are uploaded to GitHub releases
+   - Binaries are uploaded to GitHub release
    - Users can download pre-built binaries
 
 ## Manual Release (if needed)
@@ -108,8 +100,10 @@ ls -la dist/
 
 GoReleaser builds for:
 - **Linux**: amd64, arm64
-- **macOS**: amd64 (Intel), arm64 (Apple Silicon)
-- **Windows**: amd64, arm64
+- **macOS**: amd64 (Intel)
+
+> **Note**: macOS ARM64 (Apple Silicon) requires a native macOS runner for CGO cross-compilation. 
+> If you need Apple Silicon support, you can build locally on an M1/M2/M3 Mac with `go build`.
 
 ## Version Numbers
 
