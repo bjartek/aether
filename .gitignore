@@ -4,6 +4,16 @@ aether-debug.log
 evm-gateway-db
 
 aether.log
+
+# GoReleaser artifacts
+dist/
+*.tar.gz
+*.zip
+checksums.txt
+
+# Semantic release
+CHANGELOG.md
+
 # Foundry/Solidity example artifacts
 example/sol/cache/
 example/sol/out/
