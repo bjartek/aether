@@ -1,8 +1,11 @@
 name: Build Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   release:
-    types: [published]
+    types: [created, published]
 
 env:
   GO_VERSION: "1.25"
@@ -19,7 +22,11 @@ jobs:
       
       - name: Setup Release Environment
         run: |-
-          echo 'VERSION=${{ github.event.release.tag_name }}' > .release-env
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo 'VERSION=${{ github.event.release.tag_name }}' > .release-env
+          else
+            echo 'VERSION=${{ github.ref_name }}' > .release-env
+          fi
           echo 'GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}' >> .release-env
       
       - name: Build and Release
