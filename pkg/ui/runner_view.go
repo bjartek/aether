@@ -1240,7 +1240,7 @@ func (rv *RunnerView) scanDirectory(dir string, scriptType ScriptType, files *[]
 	}
 
 	// Walk the directory
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}

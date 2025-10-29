@@ -213,8 +213,8 @@ func (lv *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return lv, nil
 		}
 
-		switch msg.Type {
-		case tea.MouseWheelUp, tea.MouseWheelDown:
+		// Check for mouse wheel events using the new API
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 			lv.autoScroll = false
 		}
 

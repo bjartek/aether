@@ -112,7 +112,7 @@ func (w *LogWriter) Close() {
 		w.logChan = nil
 	}
 	if w.logFile != nil {
-		w.logFile.Sync()
+		_ = w.logFile.Sync()
 		w.logFile.Close()
 		w.logFile = nil
 	}

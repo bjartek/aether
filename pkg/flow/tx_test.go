@@ -58,12 +58,12 @@ func TestScanning_DefaultBehavior(t *testing.T) {
 	
 	// Create subdirectories with files (SHOULD SKIP)
 	testDir := filepath.Join(aetherFolder, "test")
-	os.Mkdir(testDir, 0755)
+	_ = os.Mkdir(testDir, 0755)
 	createFile(t, testDir, "test_tx.cdc", "transaction {}")
 	createFile(t, testDir, "test_config.json", `{"name":"test"}`)
 	
 	scriptsDir := filepath.Join(aetherFolder, "scripts")
-	os.Mkdir(scriptsDir, 0755)
+	_ = os.Mkdir(scriptsDir, 0755)
 	createFile(t, scriptsDir, "helper.cdc", "transaction {}")
 	
 	// Simulate the scanning logic from RunInitTransactions
@@ -106,7 +106,7 @@ func TestScanning_WithSubfolder(t *testing.T) {
 	defer os.RemoveAll(aetherFolder)
 	
 	initFolder := filepath.Join(aetherFolder, "init")
-	os.Mkdir(initFolder, 0755)
+	_ = os.Mkdir(initFolder, 0755)
 	
 	t.Logf("\n=== TEST: With Subfolder Config ===")
 	t.Logf("Config: init_transactions_folder = \"init\"")
@@ -121,7 +121,7 @@ func TestScanning_WithSubfolder(t *testing.T) {
 	
 	// Create subfolder inside init/ (SHOULD SKIP)
 	testDir := filepath.Join(initFolder, "test")
-	os.Mkdir(testDir, 0755)
+	_ = os.Mkdir(testDir, 0755)
 	createFile(t, testDir, "test.cdc", "transaction {}")
 	
 	// Simulate scanning the INIT folder (not root aether folder!)
@@ -226,7 +226,7 @@ func TestScanning_DeepNestedStructure(t *testing.T) {
 	
 	// Create deeply nested structure
 	deepPath := filepath.Join(aetherFolder, "a", "b", "c", "d")
-	os.MkdirAll(deepPath, 0755)
+	_ = os.MkdirAll(deepPath, 0755)
 	createFile(t, deepPath, "deep.cdc", "transaction {}")
 	
 	scanned := scanFolder(t, aetherFolder)

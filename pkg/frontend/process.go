@@ -78,7 +78,7 @@ func (fp *FrontendProcess) Start(ctx context.Context) error {
 
 func (fp *FrontendProcess) Stop() {
 	if fp.cmd != nil && fp.cmd.Process != nil {
-		fp.cmd.Process.Kill()
+		_ = fp.cmd.Process.Kill()
 	}
 	fp.status = "stopped"
 }

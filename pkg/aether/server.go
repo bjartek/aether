@@ -319,11 +319,9 @@ func (a *Aether) Start(teaProgram *tea.Program) error {
 							payer = ot.Payer
 						}
 						// Determine status
-						status := "Unknown"
+						status := ot.Status
 						if ot.Error != nil {
 							status = "Failed"
-						} else {
-							status = ot.Status
 						}
 
 						// Store full script - user can scroll if needed

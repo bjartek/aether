@@ -221,7 +221,9 @@ func main() {
 	go func() {
 		<-emulatorReady
 		aetherLogger.Info().Msg("Starting aether server")
-		a.Start(p)
+		if err := a.Start(p); err != nil {
+			aetherLogger.Error().Err(err).Msg("Failed to start aether server")
+		}
 	}()
 
 	// Attach the Tea program to the log writer

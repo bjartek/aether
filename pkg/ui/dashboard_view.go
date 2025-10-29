@@ -607,13 +607,6 @@ func (dv *DashboardView) renderFrontendBox(width, height int) string {
 	return boxStyle.Render(content.String())
 }
 
-// truncateString truncates a string to maxLen with ellipsis
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
-}
 
 // Name implements TabbedModel interface
 func (dv *DashboardView) Name() string {
