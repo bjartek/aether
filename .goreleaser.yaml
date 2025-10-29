@@ -46,18 +46,8 @@ builds:
 
 archives:
   - id: aether
-    ids:
-      - aether
-    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
-    formats:
-      - tar.gz
-    format_overrides:
-      - goos: windows
-        format: zip
-    wrap_in_directory: false
-    files:
-      - README.md
-      - LICENSE*
+    format: binary
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}{{ if eq .Os \"windows\" }}.exe{{ end }}"
 
 checksum:
   name_template: 'checksums.txt'
