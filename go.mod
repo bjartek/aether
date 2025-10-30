@@ -4,8 +4,8 @@ go 1.25.0
 
 require (
 	github.com/alecthomas/chroma/v2 v2.20.0
-	github.com/bjartek/overflow/v2 v2.10.1
-	github.com/bjartek/underflow v1.17.0
+	github.com/bjartek/overflow/v2 v2.11.0
+	github.com/bjartek/underflow v1.18.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -15,11 +15,11 @@ require (
 	github.com/muesli/reflow v0.3.0
 	github.com/onflow/cadence v1.8.1
 	github.com/onflow/fcl-dev-wallet v0.8.1-0.20250202234348-69de8fd4c335
-	github.com/onflow/flow-emulator v1.8.0
+	github.com/onflow/flow-emulator v1.9.0
 	github.com/onflow/flow-evm-gateway v1.3.6
-	github.com/onflow/flow-go v0.43.3-0.20251020174348-b36af5491350
+	github.com/onflow/flow-go v0.43.3-0.20251021182938-b0fef2c5ca47
 	github.com/onflow/flow-go-sdk v1.9.0
-	github.com/onflow/flowkit/v2 v2.6.1
+	github.com/onflow/flowkit/v2 v2.7.0
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v3 v3.23.12 // Add gopsutil for net connections
 	github.com/spf13/afero v1.15.0
@@ -197,9 +197,9 @@ require (
 	github.com/onflow/atree v0.11.0 // indirect
 	github.com/onflow/crypto v0.25.3 // indirect
 	github.com/onflow/fixed-point v0.1.1 // indirect
-	github.com/onflow/flixkit-go/v2 v2.5.1 // indirect
-	github.com/onflow/flow-core-contracts/lib/go/contracts v1.9.0 // indirect
-	github.com/onflow/flow-core-contracts/lib/go/templates v1.9.0 // indirect
+	github.com/onflow/flixkit-go/v2 v2.6.0 // indirect
+	github.com/onflow/flow-core-contracts/lib/go/contracts v1.9.1 // indirect
+	github.com/onflow/flow-core-contracts/lib/go/templates v1.9.1 // indirect
 	github.com/onflow/flow-evm-bridge v0.1.0 // indirect
 	github.com/onflow/flow-ft/lib/go/contracts v1.0.1 // indirect
 	github.com/onflow/flow-ft/lib/go/templates v1.0.1 // indirect
@@ -297,9 +297,9 @@ require (
 	google.golang.org/api v0.247.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250804133106-a7a43d27e69b // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
-	google.golang.org/grpc v1.75.1 // indirect
+	google.golang.org/grpc v1.76.0 // indirect
 	google.golang.org/protobuf v1.36.9 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
