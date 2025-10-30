@@ -18,12 +18,10 @@ major rework
 
 ## Install
 
-It is currently not possible to install aether with go install because we use my fork of flow-evm-gateway since some issues are not solved yet.
+You have to install it yourself with golang, working on cross compiling in actions
 
-- check out this project
-- run `go install`
-- navigate to a folder with flow.json
-- run `aether`
+- `go install github.com/bjartek/aether`
+
   For troubleshooting and reporting issues, see [DEBUGGING.md](DEBUGGING.md).
 
 ## Configuration
