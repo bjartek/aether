@@ -4,6 +4,7 @@ import (
 	"embed"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"time"
 
@@ -28,6 +29,67 @@ var fclCdc []byte
 //
 //go:embed cadence/*
 var _ embed.FS
+
+// isPortAvailable checks if a port is available for binding
+func isPortAvailable(port int) bool {
+	addr := fmt.Sprintf(":%d", port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	listener.Close()
+	return true
+}
+
+// checkRequiredPorts validates that all required ports are available
+func checkRequiredPorts(cfg *config.Config) error {
+	if cfg.Network != "emulator" {
+		// Only check ports in emulator mode
+		return nil
+	}
+
+	type portCheck struct {
+		port int
+		name string
+	}
+
+	portsToCheck := []portCheck{
+		{cfg.Ports.Emulator.GRPC, "Emulator gRPC"},
+		{cfg.Ports.Emulator.REST, "Emulator REST"},
+		{cfg.Ports.Emulator.Admin, "Emulator Admin"},
+		{cfg.Ports.Emulator.Debugger, "Emulator Debugger"},
+		{cfg.Ports.DevWallet, "Dev Wallet"},
+		{cfg.Ports.EVM.RPC, "EVM Gateway RPC"},
+		{cfg.Ports.EVM.Profiler, "EVM Gateway Profiler"},
+		{cfg.Ports.EVM.Metrics, "EVM Gateway Metrics"},
+	}
+
+	var unavailablePorts []string
+	for _, pc := range portsToCheck {
+		if !isPortAvailable(pc.port) {
+			unavailablePorts = append(unavailablePorts, fmt.Sprintf("%s (port %d)", pc.name, pc.port))
+		}
+	}
+
+	if len(unavailablePorts) > 0 {
+		return fmt.Errorf("the following ports are already in use:\n  - %s\n\nPlease stop the services using these ports or configure different ports in your config file", 
+			joins(unavailablePorts, "\n  - "))
+	}
+
+	return nil
+}
+
+// joins is a simple helper to join strings with a separator
+func joins(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	result := strs[0]
+	for i := 1; i < len(strs); i++ {
+		result += sep + strs[i]
+	}
+	return result
+}
 
 func main() {
 	// Parse command line flags
@@ -110,6 +172,12 @@ func main() {
 		aetherLogger.Info().Str("config", *configPath).Msg("Loaded configuration from file")
 	} else {
 		aetherLogger.Info().Msg("Using default configuration")
+	}
+
+	// Check if required ports are available before starting services
+	if err := checkRequiredPorts(cfg); err != nil {
+		fmt.Printf("\nError: %v\n\n", err)
+		os.Exit(1)
 	}
 
 	// Initialize components based on whether we're following a network or running locally
