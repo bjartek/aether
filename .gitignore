@@ -23,3 +23,11 @@ example/sol/.contract-address
 example/sol/.env
 profile.cov
 .release-env
+
+# Next.js + React example artifacts
+example/node_modules/
+example/.next/
+example/out/
+example/dist/
+example/*.local
+example/.env*.local

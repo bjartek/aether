@@ -74,8 +74,6 @@ func InitEmulator(logger *zerolog.Logger, cfg *aetherConfig.Config) (*server.Emu
 		ContractRemovalEnabled:       true,
 		SqliteURL:                    "",
 		CoverageReportingEnabled:     false,
-		StartBlockHeight:             0,
-		RPCHost:                      "",
 		CheckpointPath:               "",
 		StateHash:                    "",
 		ComputationReportingEnabled:  true,

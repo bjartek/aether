@@ -15,7 +15,7 @@ require (
 	github.com/muesli/reflow v0.3.0
 	github.com/onflow/cadence v1.8.1
 	github.com/onflow/fcl-dev-wallet v0.8.1-0.20250202234348-69de8fd4c335
-	github.com/onflow/flow-emulator v1.9.0
+	github.com/onflow/flow-emulator v1.10.1
 	github.com/onflow/flow-evm-gateway v1.3.6
 	github.com/onflow/flow-go v0.43.3-0.20251021182938-b0fef2c5ca47
 	github.com/onflow/flow-go-sdk v1.9.0

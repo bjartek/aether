@@ -3,6 +3,7 @@
     "Counter": {
       "source": "cadence/contracts/Counter.cdc",
       "aliases": {
+        "emulator": "0xf8d6e0586b0a20c7",
         "testing": "0000000000000007"
       }
     },
