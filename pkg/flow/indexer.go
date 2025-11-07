@@ -145,17 +145,22 @@ func GetOverflowTransactionsForBlockID(ctx context.Context, o overflow.OverflowC
 		t := *tx[i]
 		r := *rp
 		if r.CollectionID == flow.EmptyID {
-			logg.Info().Msg("System transaction")
+			keep := false
 			if len(r.Events) > 0 {
 				for _, e := range r.Events {
+					if strings.Contains(e.Type, "FlowTransactionScheduler.Executed") {
+						keep = true
+					}
 					cjson, err := underflow.CadenceValueToJsonString(e.Value)
 					if err != nil {
-						logg.Info().Msg(err.Error())
+						logg.Warn().Msg(err.Error())
 					}
-					logg.Info().Str("TransactionID", e.TransactionID.Hex()).Str("event", cjson).Msg(e.Type)
+					logg.Debug().Str("TransactionID", e.TransactionID.Hex()).Str("event", cjson).Msg(e.Type)
 				}
 			}
-			continue
+			if !keep {
+				continue
+			}
 
 		}
 		logg.Debug().Str("collection", r.CollectionID.Hex()).Int("txIndex", i).Msg("Processing transaction")
