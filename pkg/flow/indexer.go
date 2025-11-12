@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bjartek/overflow/v2"
+	"github.com/bjartek/underflow"
 	"github.com/cockroachdb/errors"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog"
@@ -140,9 +141,29 @@ func GetOverflowTransactionsForBlockID(ctx context.Context, o overflow.OverflowC
 
 	logg.Info().Str("blockId", id.String()).Int("tx", len(tx)).Int("txR", len(txR)).Msg("Fetched tx")
 	for i, rp := range txR {
-		logg.Debug().Int("txIndex", i).Msg("Processing transaction")
+
 		t := *tx[i]
 		r := *rp
+		if r.CollectionID == flow.EmptyID {
+			keep := false
+			if len(r.Events) > 0 {
+				for _, e := range r.Events {
+					if strings.Contains(e.Type, "FlowTransactionScheduler.Executed") {
+						keep = true
+					}
+					cjson, err := underflow.CadenceValueToJsonString(e.Value)
+					if err != nil {
+						logg.Warn().Msg(err.Error())
+					}
+					logg.Debug().Str("TransactionID", e.TransactionID.Hex()).Str("event", cjson).Msg(e.Type)
+				}
+			}
+			if !keep {
+				continue
+			}
+
+		}
+		logg.Debug().Str("collection", r.CollectionID.Hex()).Int("txIndex", i).Msg("Processing transaction")
 
 		txLogger := logg.With().Str("txid", r.TransactionID.Hex()).Logger()
 		ot, err := o.CreateOverflowTransaction(id.String(), r, t, i)
