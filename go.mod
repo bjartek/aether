@@ -4,21 +4,21 @@ go 1.25.0
 
 require (
 	github.com/alecthomas/chroma/v2 v2.20.0
-	github.com/bjartek/overflow/v2 v2.11.0
+	github.com/bjartek/overflow/v2 v2.12.0
 	github.com/bjartek/underflow v1.18.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cockroachdb/errors v1.12.0
 	github.com/enescakir/emoji v1.0.0
-	github.com/ethereum/go-ethereum v1.16.5
+	github.com/ethereum/go-ethereum v1.16.7
 	github.com/muesli/reflow v0.3.0
 	github.com/onflow/cadence v1.8.3
 	github.com/onflow/fcl-dev-wallet v0.9.0
-	github.com/onflow/flow-emulator v1.12.0
-	github.com/onflow/flow-evm-gateway v1.3.6
-	github.com/onflow/flow-go v0.44.0-experimental-cadence-v1.8.3.0.20251104232503-4df61ad15eed
-	github.com/onflow/flow-go-sdk v1.9.2
+	github.com/onflow/flow-emulator v1.12.2
+	github.com/onflow/flow-evm-gateway v1.4.0
+	github.com/onflow/flow-go v0.44.0-experimental-cadence-v1.8.3.0.20251114171948-8b69d4ce50bb
+	github.com/onflow/flow-go-sdk v1.9.3
 	github.com/onflow/flowkit/v2 v2.7.2
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v3 v3.24.5 // Add gopsutil for net connections
@@ -37,12 +37,13 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.8.0 // indirect
 	cloud.google.com/go/iam v1.5.2 // indirect
-	cloud.google.com/go/kms v1.23.1 // indirect
+	cloud.google.com/go/kms v1.23.2 // indirect
 	cloud.google.com/go/longrunning v0.6.7 // indirect
 	github.com/DataDog/zstd v1.5.6-0.20230824185856-869dae002e5e // indirect
 	github.com/FactomProject/basen v0.0.0-20150613233007-fe3947df716e // indirect
 	github.com/FactomProject/btcutilecc v0.0.0-20130527213604-d3a63a5752ec // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/SaveTheRbtz/mph v0.1.1-0.20240117162131-4166ec7869bc // indirect
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
@@ -89,7 +90,7 @@ require (
 	github.com/ef-ds/deque v1.0.4 // indirect
 	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
-	github.com/ethereum/c-kzg-4844/v2 v2.1.3 // indirect
+	github.com/ethereum/c-kzg-4844/v2 v2.1.5 // indirect
 	github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/fatih/color v1.17.0 // indirect
@@ -197,9 +198,9 @@ require (
 	github.com/onflow/atree v0.11.0 // indirect
 	github.com/onflow/crypto v0.25.3 // indirect
 	github.com/onflow/fixed-point v0.1.1 // indirect
-	github.com/onflow/flixkit-go/v2 v2.6.0 // indirect
-	github.com/onflow/flow-core-contracts/lib/go/contracts v1.9.1 // indirect
-	github.com/onflow/flow-core-contracts/lib/go/templates v1.9.1 // indirect
+	github.com/onflow/flixkit-go/v2 v2.6.2 // indirect
+	github.com/onflow/flow-core-contracts/lib/go/contracts v1.9.2 // indirect
+	github.com/onflow/flow-core-contracts/lib/go/templates v1.9.2 // indirect
 	github.com/onflow/flow-evm-bridge v0.1.0 // indirect
 	github.com/onflow/flow-ft/lib/go/contracts v1.0.1 // indirect
 	github.com/onflow/flow-ft/lib/go/templates v1.0.1 // indirect
@@ -300,7 +301,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20250818200422-3122310a409c // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
 	google.golang.org/grpc v1.76.0 // indirect
-	google.golang.org/protobuf v1.36.9 // indirect
+	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
