@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/alecthomas/chroma/v2 v2.20.0
-	github.com/bjartek/overflow/v2 v2.12.0
+	github.com/bjartek/overflow/v2 v2.13.0
 	github.com/bjartek/underflow v1.18.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -15,11 +15,11 @@ require (
 	github.com/muesli/reflow v0.3.0
 	github.com/onflow/cadence v1.8.3
 	github.com/onflow/fcl-dev-wallet v0.9.0
-	github.com/onflow/flow-emulator v1.12.2
+	github.com/onflow/flow-emulator v1.13.0
 	github.com/onflow/flow-evm-gateway v1.4.0
-	github.com/onflow/flow-go v0.44.0-experimental-cadence-v1.8.3.0.20251114171948-8b69d4ce50bb
+	github.com/onflow/flow-go v0.44.0-experimental-cadence-v1.8.3.0.20251117184523-ab0655178589
 	github.com/onflow/flow-go-sdk v1.9.3
-	github.com/onflow/flowkit/v2 v2.7.2
+	github.com/onflow/flowkit/v2 v2.8.0
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v3 v3.24.5 // Add gopsutil for net connections
 	github.com/spf13/afero v1.15.0
