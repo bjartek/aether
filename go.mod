@@ -14,7 +14,7 @@ require (
 	github.com/ethereum/go-ethereum v1.16.7
 	github.com/muesli/reflow v0.3.0
 	github.com/onflow/cadence v1.8.3
-	github.com/onflow/fcl-dev-wallet v0.9.0
+	github.com/onflow/fcl-dev-wallet v0.8.1-0.20250202234348-69de8fd4c335
 	github.com/onflow/flow-emulator v1.12.2
 	github.com/onflow/flow-evm-gateway v1.4.0
 	github.com/onflow/flow-go v0.44.0-experimental-cadence-v1.8.3.0.20251114171948-8b69d4ce50bb
